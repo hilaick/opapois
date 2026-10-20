@@ -1,0 +1,6 @@
+{
+  "name": "Mi Organizador Personal",
+  "description": "Organizador personal para niñas y jóvenes: horario escolar, tareas y recordatorios estilo Apple Reminders con historia de completadas, presupuesto, actividades, tablero de sueños, alertas de salud y afirmaciones de la Biblia Católica.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Mi Organizador Personal</title>
+  <meta name="description" content="Organizador personal para niñas y jóvenes: horario escolar, tareas y recordatorios estilo Apple Reminders con historia de completadas, presupuesto, actividades, tablero de sueños, alertas de salud y afirmaciones de la Biblia Católica." />
+  <meta property="og:title" content="Mi Organizador Personal" />
+  <meta property="og:description" content="Organizador personal para niñas y jóvenes: horario escolar, tareas y recordatorios estilo Apple Reminders con historia de completadas, presupuesto, actividades, tablero de sueños, alertas de salud y afirmaciones de la Biblia Católica." />
+  <!-- Firebase Scripts (Compat v10) -->
+  <script src="https://www.gstatic.com/firebasejs/10.4.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.4.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.4.0/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    /* Prevenir scroll elástico en móviles para que parezca una app nativa */
+    html, body { overscroll-behavior-y: none; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased selection:bg-pink-200">
+  <div id="root"></div>
+  <!-- Punto de entrada de Vite -->
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

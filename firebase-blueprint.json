@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "UserData": {
+      "title": "UserData",
+      "description": "Datos personales del organizador: horario, presupuesto, citas, actividades recreativas, fichas, puntos, cuidados de salud, rincón de calma y tablero de sueños",
+      "type": "object",
+      "properties": {
+        "schedule": {
+          "type": "array",
+          "description": "Lista de bloques de horario semanal"
+        },
+        "scheduleCompletions": {
+          "type": "object",
+          "description": "Registro de tareas del horario cumplidas por día (Fichas)"
+        },
+        "challengesByDay": {
+          "type": "object",
+          "description": "Registro de desafíos de actitud completados por día de la semana (Puntos)"
+        },
+        "budget": {
+          "type": "array",
+          "description": "Lista de elementos presupuestados y gastos"
+        },
+        "initialBudgetAmount": {
+          "type": "number",
+          "description": "Monto fijo inicial asignado al presupuesto personal"
+        },
+        "appointments": {
+          "type": "array",
+          "description": "Lista de clases, citas, paseos, competiciones y eventos especiales"
+        },
+        "rewards": {
+          "type": "array",
+          "description": "Lista de premios disponibles en la tienda"
+        },
+        "visionBoard": {
+          "type": "array",
+          "description": "Tarjetas del Vision Board con sueños, metas e inspiraciones"
+        },
+        "healthAlerts": {
+          "type": "array",
+          "description": "Alertas y cuidados físicos (ej. fascitis plantar, calzado, no correr/saltar)"
+        },
+        "calmJournal": {
+          "type": "array",
+          "description": "Reflexiones de gratitud y logros diarios para reducir ansiedad y subir autoestima"
+        },
+        "tokens": {
+          "type": "number",
+          "description": "Fichas acumuladas disponibles para canjear"
+        },
+        "points": {
+          "type": "number",
+          "description": "Puntos acumulados disponibles para canjear"
+        },
+        "completedChallenges": {
+          "type": "array",
+          "description": "Compatibilidad histórica de desafíos completados"
+        },
+        "tasks": {
+          "type": "array",
+          "description": "Lista de tareas y recordatorios estilo Apple Reminders con historia de completadas"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}/data/{docId}": {
+      "schema": "UserData",
+      "description": "Documentos privados de organización del usuario autenticado"
+    }
+  }
+}
