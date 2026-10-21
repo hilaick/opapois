@@ -52,8 +52,18 @@ export function TodayDashboard({ state, onEditProfile }: { state: any; onEditPro
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <span className="bg-white/20 px-3 py-0.5 rounded-full text-xs font-semibold tracking-wide backdrop-blur-sm">
-                {state.userProfile.schoolGrade}
+                {state.userProfile.schoolGrade || '2do de Secundaria'}
               </span>
+              {state.userProfile.studentCode && (
+                <span className="bg-white/20 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide backdrop-blur-sm">
+                  Cód: {state.userProfile.studentCode}
+                </span>
+              )}
+              {state.userProfile.schoolGroup && (
+                <span className="bg-white/20 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide backdrop-blur-sm">
+                  Grupo: {state.userProfile.schoolGroup}
+                </span>
+              )}
               <span className="flex items-center gap-1 text-xs text-pink-100 font-medium">
                 <Flame size={14} className="text-amber-300 fill-amber-300" /> Racha de {state.streakDays} días
               </span>

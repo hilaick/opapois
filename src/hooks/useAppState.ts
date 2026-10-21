@@ -501,12 +501,16 @@ export function useAppState() {
         if (parsed.name === 'Sofía' || !parsed.name) {
           parsed.name = 'Helen';
         }
+        if (!parsed.studentCode) parsed.studentCode = '2024-535';
+        if (!parsed.schoolGroup) parsed.schoolGroup = '535';
         return parsed;
       } catch (e) { /* ignore */ }
     }
     return {
       name: 'Helen',
       schoolGrade: '2do de Secundaria',
+      studentCode: '2024-535',
+      schoolGroup: '535',
       activeHealthHabit: 'Calzado ergonómico con soporte de arco (Evitar chanclas planas/Crocs)',
       favoriteVerse: 'Filipenses 4:13'
     };

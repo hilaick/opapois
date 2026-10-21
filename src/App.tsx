@@ -61,6 +61,7 @@ export default function App() {
                 </h2>
                 <span className="text-[11px] font-bold text-pink-600 block mt-0.5 truncate">
                   {appState.userProfile.name} • {appState.userProfile.schoolGrade}
+                  {appState.userProfile.schoolGroup ? ` • G-${appState.userProfile.schoolGroup}` : ''}
                 </span>
               </div>
             </div>

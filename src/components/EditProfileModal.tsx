@@ -7,12 +7,16 @@ interface EditProfileModalProps {
   userProfile: {
     name: string;
     schoolGrade: string;
+    studentCode?: string;
+    schoolGroup?: string;
     activeHealthHabit: string;
     favoriteVerse: string;
   };
   onSave: (updated: {
     name: string;
     schoolGrade: string;
+    studentCode?: string;
+    schoolGroup?: string;
     activeHealthHabit: string;
     favoriteVerse: string;
   }) => void;
@@ -28,6 +32,8 @@ export function EditProfileModal({
 }: EditProfileModalProps) {
   const [name, setName] = useState(userProfile.name || 'Helen');
   const [schoolGrade, setSchoolGrade] = useState(userProfile.schoolGrade || '2do de Secundaria');
+  const [studentCode, setStudentCode] = useState(userProfile.studentCode || '2024-535');
+  const [schoolGroup, setSchoolGroup] = useState(userProfile.schoolGroup || '535');
   const [activeHealthHabit, setActiveHealthHabit] = useState(
     userProfile.activeHealthHabit || 'Calzado ergonómico con soporte de arco (Evitar chanclas planas/Crocs)'
   );
@@ -44,6 +50,8 @@ export function EditProfileModal({
     onSave({
       name: name.trim(),
       schoolGrade: schoolGrade.trim(),
+      studentCode: studentCode.trim(),
+      schoolGroup: schoolGroup.trim(),
       activeHealthHabit: activeHealthHabit.trim(),
       favoriteVerse: favoriteVerse.trim()
     });
@@ -113,6 +121,34 @@ export function EditProfileModal({
               placeholder="Ej. 2do de Secundaria, 5to de Primaria..."
               className="w-full text-sm font-medium border border-slate-200 rounded-2xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-pink-500/30 focus:border-pink-500 transition"
             />
+          </div>
+
+          {/* Datos SchoolAccess: Código Estudiante y Grupo */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-sky-50/70 border border-sky-100 rounded-2xl">
+            <div>
+              <label className="text-xs font-bold text-sky-900 block mb-1">
+                Código Estudiante (SchoolAccess)
+              </label>
+              <input
+                type="text"
+                value={studentCode}
+                onChange={(e) => setStudentCode(e.target.value)}
+                placeholder="Ej. 2024-535"
+                className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-sky-900 block mb-1">
+                Grupo / Sección (SchoolAccess)
+              </label>
+              <input
+                type="text"
+                value={schoolGroup}
+                onChange={(e) => setSchoolGroup(e.target.value)}
+                placeholder="Ej. 535"
+                className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
+              />
+            </div>
           </div>
 
           {/* Cuidado de Salud Destacado */}
