@@ -5,7 +5,17 @@ import {
 } from 'lucide-react';
 import { isEventPassed, WEEKLY_CHALLENGES, getRelativeDateString, isMatchingDate } from '../hooks/useAppState';
 
-export function TodayDashboard({ state, onEditProfile }: { state: any; onEditProfile?: () => void }) {
+export function TodayDashboard({ 
+  state, 
+  onEditProfile,
+  onOpenAuthModal,
+  onOpenLogoutModal
+}: { 
+  state: any; 
+  onEditProfile?: () => void;
+  onOpenAuthModal?: () => void;
+  onOpenLogoutModal?: () => void;
+}) {
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskCategory, setTaskCategory] = useState<'Escuela' | 'Hogar' | 'Salud' | 'Personal'>('Escuela');
@@ -80,21 +90,26 @@ export function TodayDashboard({ state, onEditProfile }: { state: any; onEditPro
               )}
               {/* Cloud Sync Status */}
               {state.currentUser ? (
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
-                  state.syncStatus === 'quota-exceeded'
-                    ? 'bg-amber-400/30 text-amber-100 border border-amber-300/40'
-                    : 'bg-white/20 text-emerald-100'
-                }`}
-                title={state.syncStatus === 'quota-exceeded' ? 'Límite de cuota diaria en Firestore alcanzado. Los datos se guardan de forma segura en este navegador.' : 'Conectado a Firestore'}>
-                  {state.syncStatus === 'quota-exceeded' ? '💾 Guardado en Dispositivo' : '☁️ Sincronizado en la Nube'}
-                </span>
+                <button
+                  type="button"
+                  onClick={onOpenLogoutModal}
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 cursor-pointer transition hover:opacity-90 ${
+                    state.syncStatus === 'quota-exceeded'
+                      ? 'bg-amber-400/30 text-amber-100 border border-amber-300/40'
+                      : 'bg-white/20 text-emerald-100 hover:bg-white/30'
+                  }`}
+                  title="Haz clic para gestionar sesión o cerrar sesión"
+                >
+                  <span>{state.syncStatus === 'quota-exceeded' ? '💾 Guardado en Dispositivo' : '☁️ Sesión Activa'}</span>
+                  <span className="text-[9px] underline opacity-80">Salir</span>
+                </button>
               ) : (
                 <button
-                  onClick={state.loginWithGoogle}
-                  className="bg-white/20 hover:bg-white/30 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1 transition"
-                  title="Inicia sesión con Google para sincronizar entre el móvil y la laptop"
+                  onClick={onOpenAuthModal || state.loginWithGoogle}
+                  className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full text-[11px] font-bold text-white flex items-center gap-1.5 transition shadow-xs"
+                  title="Inicia sesión con Correo o Google para sincronizar tus deberes"
                 >
-                  <LogIn size={11} /> Conectar Google
+                  <LogIn size={12} /> Iniciar Sesión / Registrarse
                 </button>
               )}
             </div>
@@ -414,9 +429,9 @@ export function TodayDashboard({ state, onEditProfile }: { state: any; onEditPro
               <p className="text-xs text-slate-400 mt-1">Disfruta tu tiempo libre o canjea una recompensa en Mi Espacio.</p>
             </div>
           ) : (
-            pendingTasks.map((task: any) => (
+            pendingTasks.map((task: any, idx: number) => (
               <div 
-                key={task.id} 
+                key={`task-pending-${task.id || 't'}-${idx}`} 
                 className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm hover:shadow transition-all flex items-center justify-between group"
               >
                 <div className="flex items-center gap-3.5">
@@ -475,9 +490,9 @@ export function TodayDashboard({ state, onEditProfile }: { state: any; onEditPro
                   +{completedTasks.length} Fichas ganadas ✨
                 </span>
               </div>
-              {completedTasks.map((task: any) => (
+              {completedTasks.map((task: any, idx: number) => (
                 <div 
-                  key={task.id} 
+                  key={`task-done-${task.id || 't'}-${idx}`} 
                   className="bg-emerald-50/40 p-3.5 rounded-2xl border border-emerald-100/80 flex items-center justify-between opacity-80 hover:opacity-100 transition-all"
                 >
                   <div className="flex items-center gap-3">

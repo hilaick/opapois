@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   Task, Activity, SchoolClass, Assignment, DreamItem, 
   RewardItem, BibleVerse, HealthLog, ExpenseItem, ExpenseCategory,
-  AttitudeChallenge, CalmReflection 
+  AttitudeChallenge, CalmReflection, SchoolGradesData, BudgetItem, WeeklyRoutineItem 
 } from '../types';
 import { 
-  auth, db, loginWithGoogle, logoutUser, onAuthStateChanged, 
+  auth, db, loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, logoutUser, onAuthStateChanged, 
   doc, setDoc, getDoc, onSnapshot, collection, getDocs, User 
 } from '../firebase';
 
@@ -41,22 +41,35 @@ export const normalizeDate = (rawDate?: any): string => {
   const d = String(rawDate).trim();
   if (!d) return '';
 
-  // YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}/.test(d)) {
-    return d.substring(0, 10);
+  // YYYY-MM-DD anywhere in string
+  const isoMatch = d.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
   }
-  // YYYY/MM/DD
-  if (/^\d{4}\/\d{2}\/\d{2}/.test(d)) {
-    return d.substring(0, 10).replace(/\//g, '-');
+  // YYYY/MM/DD anywhere in string
+  const ymdSlashMatch = d.match(/\b(\d{4})\/(\d{2})\/(\d{2})\b/);
+  if (ymdSlashMatch) {
+    return `${ymdSlashMatch[1]}-${ymdSlashMatch[2]}-${ymdSlashMatch[3]}`;
   }
-  // DD/MM/YYYY or DD-MM-YYYY
-  const dmyMatch = d.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+
+  // DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY anywhere in string (even after "Lunes, ")
+  const dmyMatch = d.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
   if (dmyMatch) {
-    const day = dmyMatch[1].padStart(2, '0');
-    const month = dmyMatch[2].padStart(2, '0');
+    let p1 = parseInt(dmyMatch[1], 10);
+    let p2 = parseInt(dmyMatch[2], 10);
     const y = dmyMatch[3];
+    // If second number > 12, it is MM/DD/YYYY (e.g. 10/19/2026)
+    let dayNum = p1;
+    let monthNum = p2;
+    if (p2 > 12 && p1 <= 12) {
+      monthNum = p1;
+      dayNum = p2;
+    }
+    const day = String(dayNum).padStart(2, '0');
+    const month = String(monthNum).padStart(2, '0');
     return `${y}-${month}-${day}`;
   }
+
   // DD/MM or DD-MM (without year, default to current year)
   const dmMatch = d.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
   if (dmMatch) {
@@ -66,17 +79,24 @@ export const normalizeDate = (rawDate?: any): string => {
     return `${y}-${month}-${day}`;
   }
 
-  // Spanish text format: e.g. "Viernes 23 de Octubre", "23 de octubre", "23 octubre 2026"
-  const spanishMonths: Record<string, string> = {
+  // Spanish & English text format: e.g. "lunes, octubre 19, 2026", "Viernes 23 de Octubre", "19-Oct-2026"
+  const monthMap: Record<string, string> = {
     enero: '01', febrero: '02', marzo: '03', abril: '04', mayo: '05', junio: '06',
     julio: '07', agosto: '08', septiembre: '09', setiembre: '09', octubre: '10',
-    noviembre: '11', diciembre: '12'
+    noviembre: '11', diciembre: '12',
+    january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
+    july: '07', august: '08', september: '09', october: '10', november: '11', december: '12',
+    ene: '01', feb: '02', mar: '03', abr: '04', apr: '04', jun: '06',
+    jul: '07', ago: '08', aug: '08', sep: '09', oct: '10', nov: '11', dic: '12', dec: '12'
   };
 
   const lower = d.toLowerCase();
-  for (const [mName, mNum] of Object.entries(spanishMonths)) {
-    if (lower.includes(mName)) {
-      const dayMatch = lower.match(/\b(\d{1,2})\b/);
+  for (const [mName, mNum] of Object.entries(monthMap)) {
+    const regex = new RegExp(`\\b${mName}\\b`, 'i');
+    if (regex.test(lower) || (mName.length >= 4 && lower.includes(mName))) {
+      // Remove any 4-digit year first when looking for the 1-2 digit day
+      const withoutYear = lower.replace(/\b20\d{2}\b/g, '');
+      const dayMatch = withoutYear.match(/\b(\d{1,2})\b/);
       if (dayMatch) {
         const day = dayMatch[1].padStart(2, '0');
         const yearMatch = lower.match(/\b(20\d{2})\b/);
@@ -207,14 +227,34 @@ export const normalizeExpense = (raw: any, index: number = 0): ExpenseItem => {
   const rawAmount = raw.amount ?? raw.monto ?? raw.cost ?? raw.costo ?? raw.precio ?? raw.valor ?? raw.total ?? 0;
   const numAmount = typeof rawAmount === 'number' ? rawAmount : (parseFloat(String(rawAmount).replace(/[^0-9.-]+/g, '')) || 0);
 
-  const rawCat = raw.category || raw.categoria;
-  const validCategories: ExpenseCategory[] = ['Materiales Escolares', 'Salud & Cuidado', 'Paseos & Meriendas', 'Ahorro & Metas', 'Otros'];
+  let rawCat = raw.category || raw.categoria;
+  const validCategories: ExpenseCategory[] = ['Pelo', 'Aseo Personal', 'Materiales Escolares', 'Salud & Cuidado', 'Paseos & Meriendas', 'Ahorro & Metas', 'Otros'];
+  
+  let desc = String(raw.description || raw.item || raw.descripcion || raw.title || raw.titulo || raw.concepto || raw.name || 'Gasto').trim();
+
+  // Mapear conceptos antiguos a los ítems reales de cuidado y presupuesto si corresponde
+  if (desc.toLowerCase().includes('acuarela') || desc.toLowerCase().includes('plantilla')) {
+    if (numAmount >= 26 || index === 0) {
+      desc = 'Shampoo Yellow';
+      rawCat = 'Pelo';
+    } else {
+      desc = 'Acondicionador Yellow';
+      rawCat = 'Pelo';
+    }
+  } else if (desc.toLowerCase().includes('merienda')) {
+    desc = 'Tratamiento';
+    rawCat = 'Pelo';
+  } else if (desc.toLowerCase().includes('alcancia') || desc.toLowerCase().includes('alcancía')) {
+    desc = 'Body Scrub';
+    rawCat = 'Aseo Personal';
+  }
+
   const category = (validCategories.includes(rawCat) ? rawCat : 'Otros') as ExpenseCategory;
 
   return {
     ...raw,
     id: String(raw.id || raw._id || `exp-${index}-${Date.now()}`),
-    description: String(raw.description || raw.descripcion || raw.title || raw.titulo || raw.concepto || raw.name || 'Gasto').trim(),
+    description: desc,
     amount: isNaN(numAmount) ? 0 : Math.abs(numAmount),
     category,
     date: normalizeDate(raw.date || raw.fecha) || getRelativeDateString(0)
@@ -237,6 +277,34 @@ export const isEventPassed = (activity: { date: string; time?: string }): boolea
     return now.getTime() > eventTime.getTime();
   }
   return false;
+};
+
+export const getCurrentWeekRange = (referenceDate: Date = new Date()) => {
+  const currentDay = referenceDate.getDay(); // 0 es Domingo, 1 es Lunes
+  const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+
+  const monday = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate() + diffToMonday, 0, 0, 0, 0);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6, 23, 59, 59, 999);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const mondayIso = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+  const sundayIso = `${sunday.getFullYear()}-${pad(sunday.getMonth() + 1)}-${pad(sunday.getDate())}`;
+
+  return { monday, sunday, mondayIso, sundayIso };
+};
+
+export const isDateInCurrentWeek = (rawDate?: any, referenceDate?: Date): boolean => {
+  if (!rawDate) return false;
+  const iso = normalizeDate(rawDate);
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  
+  const { mondayIso, sundayIso } = getCurrentWeekRange(referenceDate);
+  return iso >= mondayIso && iso <= sundayIso;
+};
+
+export const filterTasksByCurrentWeek = <T extends { dueDate?: string; date?: string }>(items: T[], referenceDate?: Date): T[] => {
+  if (!Array.isArray(items)) return [];
+  return items.filter(item => isDateInCurrentWeek(item.dueDate || item.date, referenceDate));
 };
 
 export const WEEKLY_CHALLENGES: Record<string, AttitudeChallenge> = {
@@ -284,11 +352,164 @@ export const WEEKLY_CHALLENGES: Record<string, AttitudeChallenge> = {
   }
 };
 
-const INITIAL_EXPENSES: ExpenseItem[] = [
-  { id: 'exp-1', description: 'Set de acuarelas y papel 300g', amount: 240, category: 'Materiales Escolares', date: getRelativeDateString(-3) },
-  { id: 'exp-2', description: 'Plantillas ortopédicas y gel de soporte', amount: 350, category: 'Salud & Cuidado', date: getRelativeDateString(-5) },
-  { id: 'exp-3', description: 'Merienda saludable y fruta', amount: 65, category: 'Paseos & Meriendas', date: getRelativeDateString(-1) },
-  { id: 'exp-4', description: 'Aporte a la alcancía para libros', amount: 150, category: 'Ahorro & Metas', date: getRelativeDateString(0) },
+// Presupuesto Inicial y Cuidados (Pelo & Aseo Personal)
+export const INITIAL_BUDGET: BudgetItem[] = [
+  { id: 1, category: "Pelo", item: "Shampoo Yellow", cost: 26.00, date: "Cada 2/3 meses", purchased: false },
+  { id: 2, category: "Pelo", item: "Acondicionador Yellow", cost: 26.00, date: "Cada 2/3 meses", purchased: false },
+  { id: 3, category: "Pelo", item: "Tratamiento", cost: 20.00, date: "Por definir", purchased: false },
+  { id: 4, category: "Pelo", item: "Recarga Norex", cost: 5.00, date: "Por definir", purchased: false },
+  { id: 5, category: "Aseo Personal", item: "Body Scrub", cost: 10.00, date: "Mensual", purchased: false },
+  { id: 6, category: "Aseo Personal", item: "Crema Cuerpo", cost: 8.00, date: "Mensual", purchased: false },
+  { id: 7, category: "Aseo Personal", item: "Splash", cost: 5.00, date: "Mensual", purchased: false },
+];
+
+export const INITIAL_EXPENSES: ExpenseItem[] = [
+  { id: 'exp-1', description: 'Shampoo Yellow', amount: 26.00, category: 'Pelo', date: getRelativeDateString(-2) },
+  { id: 'exp-2', description: 'Acondicionador Yellow', amount: 26.00, category: 'Pelo', date: getRelativeDateString(-2) },
+  { id: 'exp-3', description: 'Tratamiento', amount: 20.00, category: 'Pelo', date: getRelativeDateString(-5) },
+  { id: 'exp-4', description: 'Recarga Norex', amount: 5.00, category: 'Pelo', date: getRelativeDateString(-8) },
+  { id: 'exp-5', description: 'Body Scrub', amount: 10.00, category: 'Aseo Personal', date: getRelativeDateString(-1) },
+  { id: 'exp-6', description: 'Crema Cuerpo', amount: 8.00, category: 'Aseo Personal', date: getRelativeDateString(-3) },
+  { id: 'exp-7', description: 'Splash', amount: 5.00, category: 'Aseo Personal', date: getRelativeDateString(-6) },
+];
+
+export const INITIAL_WEEKLY_ROUTINES: WeeklyRoutineItem[] = [
+  {
+    id: 'rout-1',
+    time: '05:45 - 06:30',
+    title: 'Hora de Levantarse y Aseo Matutino',
+    category: 'levantarse',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Despertar con energía, estiramientos con toalla para fascitis, calzado ergonómico y desayuno nutritivo.',
+    icon: '🌅'
+  },
+  {
+    id: 'rout-2',
+    time: '06:40 - 07:15',
+    title: 'Salida hacia el Colegio Real de Panamá',
+    category: 'colegio',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Mochila organizada con libros y agenda. Salida puntual con mamá/papá.',
+    icon: '🚌'
+  },
+  {
+    id: 'rout-3',
+    time: '07:30 - 14:15',
+    title: 'Horario Escolar y Clases Académicas',
+    category: 'colegio',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Atención a clases, actividades grupales, recreo con merienda y postura ergonómica.',
+    icon: '🏫'
+  },
+  {
+    id: 'rout-4',
+    time: '14:45 - 15:30',
+    title: 'Hora de Comer al Llegar del Colegio',
+    category: 'comida',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Llegada a casa, lavado de manos, cambio a calzado cómodo de descanso y almuerzo familiar saludable.',
+    icon: '🍽️'
+  },
+  {
+    id: 'rout-5',
+    time: '15:30 - 17:00',
+    title: 'Hora de Deberes y Tareas Escolares',
+    category: 'estudio',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Realizar deberes de SchoolAccess, repasar vocabulario de inglés, matemáticas y preparar la cartuchera.',
+    icon: '📚'
+  },
+  {
+    id: 'rout-6',
+    time: '17:00 - 18:00',
+    title: 'Tiempos de Pantalla (Límite 1 hora)',
+    category: 'pantalla',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Uso de dispositivos equilibrado: juegos educativos, contenidos creativos o comunicación familiar. Máximo 1 hora.',
+    icon: '📱'
+  },
+  {
+    id: 'rout-7',
+    time: '18:00 - 18:45',
+    title: 'Terapia de Pies & Tiempo Libre sin Pantallas',
+    category: 'salud',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+    description: 'Rodar botella fría con hielo por 15 minutos en la planta del pie. Dibujo, plastilina o lectura recreativa.',
+    icon: '🧊'
+  },
+  {
+    id: 'rout-8',
+    time: '19:00 - 19:45',
+    title: 'Cena en Familia y Charla del Día',
+    category: 'comida',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+    description: 'Cena ligera en la mesa, compartir momentos bonitos del día y reír juntos.',
+    icon: '🥗'
+  },
+  {
+    id: 'rout-9',
+    time: '19:45 - 20:30',
+    title: 'Aseo Personal y Cuidado de Cabello',
+    category: 'salud',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+    description: 'Ducha tibia, cuidado capilar con Yellow / Norex, cepillado dental y pijama limpia.',
+    icon: '🚿'
+  },
+  {
+    id: 'rout-10',
+    time: '20:30 - 21:00',
+    title: 'Lectura Espiritual y Preparación de Noche',
+    category: 'dormir',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+    description: 'Lectura de Filipenses 4:13, agradecimiento del día y ambiente relajante con luces tenues.',
+    icon: '📖'
+  },
+  {
+    id: 'rout-11',
+    time: '21:00',
+    title: 'Hora de Dormir y Descanso Total',
+    category: 'dormir',
+    days: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+    description: 'Sueño reparador de 8 a 9 horas para crecer fuerte, regenerar los pies y levantarse con energía.',
+    icon: '🌙'
+  },
+  // Rutinas específicas para Sábados y Domingos
+  {
+    id: 'rout-12',
+    time: '07:30 - 08:30',
+    title: 'Hora de Levantarse (Fin de Semana)',
+    category: 'levantarse',
+    days: ['Sábado', 'Domingo'],
+    description: 'Despertar con calma, estiramientos de pies en la cama y desayuno relajado en familia.',
+    icon: '☀️'
+  },
+  {
+    id: 'rout-13',
+    time: '12:30 - 13:30',
+    title: 'Almuerzo Familiar de Fin de Semana',
+    category: 'comida',
+    days: ['Sábado', 'Domingo'],
+    description: 'Comida rica en familia, hidratación fresca y descanso de mediodía.',
+    icon: '🍲'
+  },
+  {
+    id: 'rout-14',
+    time: '14:00 - 15:30',
+    title: 'Tiempos de Pantalla (Fin de Semana)',
+    category: 'pantalla',
+    days: ['Sábado', 'Domingo'],
+    description: 'Tiempo de entretenimiento digital, ver películas o videojuegos compartidos (1.5 horas máximo).',
+    icon: '🎮'
+  },
+  {
+    id: 'rout-15',
+    time: '16:00 - 18:30',
+    title: 'Paseo al Aire Libre / Actividades Creativas',
+    category: 'salud',
+    days: ['Sábado', 'Domingo'],
+    description: 'Paseo al parque con calzado de arco amortiguado, dibujo, manualidades o visita a familiares.',
+    icon: '🎨'
+  }
 ];
 
 const INITIAL_TASKS: Task[] = [
@@ -466,6 +687,7 @@ export function useAppState() {
 
   // User auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'quota-exceeded'>('offline');
   const activeFirestoreDocId = useRef<string>('main');
   const isQuotaExceededRef = useRef<boolean>(false);
@@ -492,25 +714,31 @@ export function useAppState() {
     return saved !== null ? Number(saved) : 6;
   });
 
-  // User Profile: Default to Helen! (Cleanse any hardcoded 'Sofía')
+  // User Profile: Default to Helen Nicole with SchoolAccess credentials
   const [userProfile, setUserProfile] = useState(() => {
+    const savedUser = localStorage.getItem('sa_saved_user') || '1660';
+    const savedPass = localStorage.getItem('sa_saved_pass') || '';
     const saved = localStorage.getItem('mop_user_profile');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (parsed.name === 'Sofía' || !parsed.name) {
-          parsed.name = 'Helen';
+          parsed.name = 'Helen Nicole Yard Garcia';
         }
-        if (!parsed.studentCode) parsed.studentCode = '2024-535';
+        if (!parsed.studentCode) parsed.studentCode = savedUser;
         if (!parsed.schoolGroup) parsed.schoolGroup = '535';
+        if (!parsed.schoolAccessUsername) parsed.schoolAccessUsername = savedUser;
+        if (!parsed.schoolAccessPassword && savedPass) parsed.schoolAccessPassword = savedPass;
         return parsed;
       } catch (e) { /* ignore */ }
     }
     return {
-      name: 'Helen',
-      schoolGrade: '2do de Secundaria',
-      studentCode: '2024-535',
+      name: 'Helen Nicole Yard Garcia',
+      schoolGrade: '5º - Primaria A',
+      studentCode: savedUser,
       schoolGroup: '535',
+      schoolAccessUsername: savedUser,
+      schoolAccessPassword: savedPass,
       activeHealthHabit: 'Calzado ergonómico con soporte de arco (Evitar chanclas planas/Crocs)',
       favoriteVerse: 'Filipenses 4:13'
     };
@@ -535,6 +763,36 @@ export function useAppState() {
       }
     }
     return INITIAL_EXPENSES.map((e, idx) => normalizeExpense(e, idx));
+  });
+
+  // Ítems de Presupuesto Inicial y Cuidados (Pelo & Aseo Personal)
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(() => {
+    const saved = localStorage.getItem('mop_budget_items');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return INITIAL_BUDGET;
+  });
+
+  // Horario y Rutinas Semanales (Levantarse, tiempos de pantalla, hora de comer de colegio, etc.)
+  const [routines, setRoutines] = useState<WeeklyRoutineItem[]>(() => {
+    const saved = localStorage.getItem('mop_weekly_routines');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return INITIAL_WEEKLY_ROUTINES;
+  });
+
+  // Cumplimiento de rutinas por fecha y rutina (clave: YYYY-MM-DD_routineId)
+  const [routineCompletions, setRoutineCompletions] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('mop_routine_completions');
+    return saved ? JSON.parse(saved) : {};
   });
 
   // Rincón de calma y reflexiones
@@ -636,11 +894,57 @@ export function useAppState() {
     return INITIAL_ACTIVITIES.map(normalizeActivity);
   });
 
-  const [schoolClasses] = useState<SchoolClass[]>(INITIAL_CLASSES);
-  
+  const [schoolClasses, setSchoolClasses] = useState<SchoolClass[]>(() => {
+    const saved = localStorage.getItem('mop_school_classes');
+    return saved ? JSON.parse(saved) : INITIAL_CLASSES;
+  });
+
+  const isMetadataGrade = (text: string = '') => {
+    const clean = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    if (!clean) return true;
+    if (clean.includes('espanol')) return false;
+    return clean.includes('codigo') || clean.includes('cedula') || clean.includes('nombre') ||
+           clean.includes('grado') || clean.includes('ano lectivo') || clean.startsWith('ano ') || clean === 'ano' ||
+           clean.includes('seccion') || clean.includes('seleccionar') || clean.includes('boletin') ||
+           clean.includes('estudiante') || clean.includes('materia') || clean.includes('asignatura') ||
+           clean.includes('promedio') || clean.includes('periodo') || clean.includes('condicion');
+  };
+
+  const [gradesData, setGradesData] = useState<SchoolGradesData>(() => {
+    const saved = localStorage.getItem('mop_grades');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.grades)) {
+            parsed.grades = parsed.grades.filter((g: any) => g && g.subject && !isMetadataGrade(g.subject));
+          }
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    return { grades: [], habits: [], attendance: [], observations: [] };
+  });
+
   const [assignments, setAssignments] = useState<Assignment[]>(() => {
     const saved = localStorage.getItem('mop_assignments');
-    return saved ? JSON.parse(saved) : INITIAL_ASSIGNMENTS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const seenIds = new Set<string>();
+          return parsed.map((item: any, idx: number) => {
+            let id = String(item.id || `as-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`);
+            if (seenIds.has(id)) {
+              id = `as-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+            }
+            seenIds.add(id);
+            return { ...item, id };
+          });
+        }
+      } catch (e) {}
+    }
+    return INITIAL_ASSIGNMENTS;
   });
 
   const [rewards, setRewards] = useState<RewardItem[]>(() => {
@@ -693,15 +997,28 @@ export function useAppState() {
       setExpenses(cloudExpenses.map((e, idx) => normalizeExpense(e, idx)));
     }
 
+    if (Array.isArray(data.budgetItems)) {
+      setBudgetItems(data.budgetItems);
+    }
+
     if (data.initialBudgetAmount !== undefined) {
       setInitialBudgetAmount(Number(data.initialBudgetAmount));
     }
 
     if (data.tokens !== undefined) setTokens(Number(data.tokens));
     if (data.points !== undefined) setPoints(Number(data.points));
+    if (data.streakDays !== undefined) setStreakDays(Number(data.streakDays));
 
     if (data.challengesByDay && typeof data.challengesByDay === 'object') {
       setChallengesByDay(data.challengesByDay);
+    }
+
+    if (Array.isArray(data.routines)) {
+      setRoutines(data.routines);
+    }
+
+    if (data.routineCompletions && typeof data.routineCompletions === 'object') {
+      setRoutineCompletions(data.routineCompletions);
     }
 
     if (Array.isArray(data.calmJournal)) {
@@ -713,13 +1030,12 @@ export function useAppState() {
       setHealthLog(data.healthLog || data.healthAlerts);
     }
 
-    // Support both 'visionBoard' and 'dreams' (Normalizados y protegidos contra sobreescritura si el usuario completó tarjetas)
+    // Support both 'visionBoard' and 'dreams'
     const cloudDreams = data.visionBoard || data.dreams;
     if (Array.isArray(cloudDreams)) {
       setDreams(prev => {
         const normalizedCloud = cloudDreams.map((item, idx) => normalizeDream(item, idx));
         if (!prev || prev.length === 0) return normalizedCloud;
-        // Combinar preservando el estado completado si el usuario lo marcó localmente
         return normalizedCloud.map(cd => {
           const localMatch = prev.find(p => String(p.id) === String(cd.id) || p.title.toLowerCase() === cd.title.toLowerCase());
           if (localMatch && (isDirtyRef.current || localMatch.completed)) {
@@ -737,88 +1053,175 @@ export function useAppState() {
       setRewards(data.rewards);
     }
 
+    if (Array.isArray(data.schoolClasses)) {
+      setSchoolClasses(data.schoolClasses);
+    }
+
+    if (Array.isArray(data.assignments)) {
+      const seenIds = new Set<string>();
+      const sanitized = data.assignments.map((item: any, idx: number) => {
+        let id = String(item.id || `as-${Date.now()}-${idx}`);
+        if (seenIds.has(id)) {
+          id = `as-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+        }
+        seenIds.add(id);
+        return { ...item, id };
+      });
+      setAssignments(sanitized);
+    }
+
+    if (data.gradesData && typeof data.gradesData === 'object') {
+      setGradesData(data.gradesData);
+    }
+
     const profileObj = data.userProfile || data.profile;
     const cloudName = profileObj?.name || data.name || data.userName;
     if (profileObj || cloudName) {
       setUserProfile((prev: any) => ({
         ...prev,
         ...(profileObj || {}),
-        name: (cloudName && cloudName !== 'Sofía') ? cloudName : (prev.name || 'Helen')
+        name: (cloudName && cloudName !== 'Sofía') ? cloudName : (prev.name || 'Helen Nicole')
       }));
     }
   }, []);
 
-  // Firebase Auth listener and automatic user name resolution
+  // Firebase Auth listener and automatic user name & Firestore data resolution
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
+      setAuthLoading(false);
 
       if (user) {
         setSyncStatus('synced');
 
-        // Resolve Helen's name from user auth if available
+        // Resolve user display name
         const nameToUse = user.displayName 
-          ? user.displayName.split(' ')[0] 
-          : (user.email ? user.email.split('@')[0] : 'Helen');
+          ? user.displayName 
+          : (user.email ? user.email.split('@')[0] : 'Helen Nicole');
 
-        setUserProfile((prev: any) => {
-          // If name was Sofía or default, update to Helen / logged in user
-          const updatedName = (prev.name === 'Sofía' || !prev.name) ? nameToUse : prev.name;
-          return {
-            ...prev,
-            name: updatedName
-          };
-        });
+        setUserProfile((prev: any) => ({
+          ...prev,
+          name: prev.name && prev.name !== 'Sofía' ? prev.name : nameToUse
+        }));
 
-        // Search for existing Firestore data in all possible document paths
+        // Search for existing Firestore data in user's scoped document
         try {
-          // 1. Check collection /users/{uid}/data
-          const dataColRef = collection(db, 'users', user.uid, 'data');
-          const dataSnap = await getDocs(dataColRef);
+          const mainDocRef = doc(db, 'users', user.uid, 'data', 'main');
+          const mainSnap = await getDoc(mainDocRef);
 
-          if (!dataSnap.empty) {
-            // Find the most relevant document
-            let targetDoc = dataSnap.docs.find(d => d.id === 'main') || 
-                            dataSnap.docs.find(d => d.id === 'UserData') || 
-                            dataSnap.docs[0];
-
-            if (targetDoc && targetDoc.exists()) {
-              activeFirestoreDocId.current = targetDoc.id;
-              applyCloudData(targetDoc.data());
-            }
+          if (mainSnap.exists()) {
+            activeFirestoreDocId.current = 'main';
+            applyCloudData(mainSnap.data());
           } else {
-            // 2. Check direct document /users/{uid}
+            // Check direct document /users/{uid}
             const directDocRef = doc(db, 'users', user.uid);
             const directSnap = await getDoc(directDocRef);
             if (directSnap.exists()) {
               applyCloudData(directSnap.data());
+            } else {
+              // First time user login! Seed initial state into Firestore database
+              const initialUserData = {
+                userProfile: {
+                  name: nameToUse,
+                  schoolGrade: '5º - Primaria A',
+                  studentCode: '1660',
+                  schoolGroup: '535',
+                  schoolAccessUsername: '1660',
+                  schoolAccessPassword: '',
+                  activeHealthHabit: 'Calzado ergonómico con soporte de arco (Evitar chanclas planas/Crocs)',
+                  favoriteVerse: 'Filipenses 4:13'
+                },
+                tasks: INITIAL_TASKS,
+                activities: INITIAL_ACTIVITIES,
+                appointments: INITIAL_ACTIVITIES,
+                tokens: 14,
+                points: 60,
+                streakDays: 6,
+                expenses: INITIAL_EXPENSES,
+                budget: INITIAL_EXPENSES,
+                budgetItems: INITIAL_BUDGET,
+                initialBudgetAmount: 1500,
+                challengesByDay: { Lunes: true, Martes: true },
+                routines: INITIAL_WEEKLY_ROUTINES,
+                routineCompletions: {},
+                calmJournal: [
+                  {
+                    id: 'calm-1',
+                    date: getRelativeDateString(-1),
+                    mood: 'tranquila',
+                    gratitude: 'Agradezco el apoyo de mis papás con mis ejercicios del pie.',
+                    achievement: 'Logré mantener la calma durante el examen difícil de Matemáticas.'
+                  }
+                ],
+                healthLog: {
+                  waterGlasses: 5,
+                  stretchedFeet: true,
+                  supportShoesWorn: true,
+                  iceBottleDone: false,
+                  notes: 'Me siento mucho mejor sin dolor al levantarme por la mañana.'
+                },
+                healthAlerts: {
+                  waterGlasses: 5,
+                  stretchedFeet: true,
+                  supportShoesWorn: true,
+                  iceBottleDone: false,
+                  notes: 'Me siento mucho mejor sin dolor al levantarme por la mañana.'
+                },
+                dreams: INITIAL_DREAMS,
+                visionBoard: INITIAL_DREAMS,
+                rewards: INITIAL_REWARDS,
+                schoolClasses: INITIAL_CLASSES,
+                assignments: INITIAL_ASSIGNMENTS,
+                gradesData: { grades: [], habits: [], attendance: [], observations: [] },
+                updatedAt: new Date().toISOString()
+              };
+
+              try {
+                await setDoc(mainDocRef, initialUserData, { merge: true });
+                applyCloudData(initialUserData);
+              } catch (seedErr) {
+                console.warn('Initial cloud seed notice:', seedErr);
+              }
             }
           }
-
-          // 3. Check for subcollection /users/{uid}/appointments if exists
-          try {
-            const appColRef = collection(db, 'users', user.uid, 'appointments');
-            const appSnap = await getDocs(appColRef);
-            if (!appSnap.empty) {
-              const listFromSubcol = appSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-              setActivities(prev => {
-                const combined = [...prev];
-                for (const it of listFromSubcol) {
-                  const norm = normalizeActivity(it);
-                  const idx = combined.findIndex(c => c.id === norm.id);
-                  if (idx >= 0) combined[idx] = norm;
-                  else combined.push(norm);
-                }
-                return combined;
-              });
-              isCloudDataLoadedRef.current = true;
-            }
-          } catch (e) { /* ignore */ }
         } catch (err) {
           console.warn('Error reading initial Firestore collections:', err);
         }
       } else {
+        // User is logged out: clear state so no private data remains visible
         setSyncStatus('offline');
+        setTasks([]);
+        setAssignments([]);
+        setActivities([]);
+        setTokens(0);
+        setPoints(0);
+        setStreakDays(0);
+        setExpenses([]);
+        setBudgetItems([]);
+        setRoutines([]);
+        setRoutineCompletions({});
+        setCalmJournal([]);
+        setHealthLog({
+          waterGlasses: 0,
+          stretchedFeet: false,
+          supportShoesWorn: false,
+          iceBottleDone: false,
+          notes: ''
+        });
+        setRewards([]);
+        setDreams([]);
+        setSchoolClasses([]);
+        setGradesData({ grades: [], habits: [], attendance: [], observations: [] });
+        setUserProfile({
+          name: '',
+          schoolGrade: '',
+          studentCode: '',
+          schoolGroup: '',
+          schoolAccessUsername: '',
+          schoolAccessPassword: '',
+          activeHealthHabit: '',
+          favoriteVerse: ''
+        });
       }
     });
 
@@ -845,7 +1248,7 @@ export function useAppState() {
         isQuotaExceededRef.current = true;
         setSyncStatus('quota-exceeded');
       } else if (error?.code === 'unavailable' || error?.message?.includes('access control checks') || error?.message?.includes('network')) {
-        console.warn('Firestore streaming channel unavailable in this environment. Retaining reliable local storage mode.');
+        console.warn('Firestore streaming channel unavailable in this environment.');
         setSyncStatus('offline');
       } else {
         console.warn('Firestore snapshot error:', error);
@@ -859,9 +1262,9 @@ export function useAppState() {
   // Push local changes to Firestore when state updates and user is logged in
   const pushToFirestore = useCallback(async () => {
     if (!currentUser) return;
-    // CRITICAL: Stop if quota is exceeded to prevent resource-exhausted error spam
+    // Stop if quota is exceeded
     if (isQuotaExceededRef.current) return;
-    // CRITICAL: ONLY write if user explicitly made local modifications!
+    // Only write if user explicitly made local modifications!
     if (!isDirtyRef.current) {
       return;
     }
@@ -870,24 +1273,31 @@ export function useAppState() {
     try {
       const activeDocRef = doc(db, 'users', currentUser.uid, 'data', activeFirestoreDocId.current);
       
-      // Save with dual property names for total compatibility with past and present schemas
+      // Save full user state directly to Firestore
       await setDoc(activeDocRef, {
         userProfile,
         tasks,
         activities,
-        appointments: activities, // Backward compatibility with previous app schema
+        appointments: activities,
         tokens,
         points,
+        streakDays,
         expenses,
-        budget: expenses,         // Backward compatibility
+        budget: expenses,
+        budgetItems,
         initialBudgetAmount,
         challengesByDay,
+        routines,
+        routineCompletions,
         calmJournal,
         healthLog,
-        healthAlerts: healthLog,  // Backward compatibility
+        healthAlerts: healthLog,
         dreams,
-        visionBoard: dreams,      // Backward compatibility
+        visionBoard: dreams,
         rewards,
+        schoolClasses,
+        assignments,
+        gradesData,
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
@@ -895,7 +1305,7 @@ export function useAppState() {
       setSyncStatus('synced');
     } catch (err: any) {
       if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-        console.warn('Firestore daily write quota reached. Changes are safely preserved locally.');
+        console.warn('Firestore daily write quota reached.');
         isQuotaExceededRef.current = true;
         setSyncStatus('quota-exceeded');
       } else {
@@ -903,14 +1313,14 @@ export function useAppState() {
         setSyncStatus('offline');
       }
     }
-  }, [currentUser, userProfile, tasks, activities, tokens, points, expenses, initialBudgetAmount, challengesByDay, calmJournal, healthLog, dreams, rewards]);
+  }, [currentUser, userProfile, tasks, activities, tokens, points, streakDays, expenses, budgetItems, initialBudgetAmount, challengesByDay, routines, routineCompletions, calmJournal, healthLog, dreams, rewards, schoolClasses, assignments, gradesData]);
 
-  // Debounced push to Firestore - ONLY triggers when user performed a local change (isDirtyRef is true)
+  // Debounced push to Firestore (800ms) - triggers when user modified data
   useEffect(() => {
     if (!currentUser || !isDirtyRef.current || isQuotaExceededRef.current) return;
     const timer = setTimeout(() => {
       pushToFirestore();
-    }, 2500);
+    }, 800);
     return () => clearTimeout(timer);
   }, [currentUser, pushToFirestore]);
 
@@ -927,6 +1337,8 @@ export function useAppState() {
   useEffect(() => { localStorage.setItem('mop_tasks', JSON.stringify(tasks)); }, [tasks]);
   useEffect(() => { localStorage.setItem('mop_activities', JSON.stringify(activities)); }, [activities]);
   useEffect(() => { localStorage.setItem('mop_assignments', JSON.stringify(assignments)); }, [assignments]);
+  useEffect(() => { localStorage.setItem('mop_school_classes', JSON.stringify(schoolClasses)); }, [schoolClasses]);
+  useEffect(() => { localStorage.setItem('mop_grades', JSON.stringify(gradesData)); }, [gradesData]);
   useEffect(() => { localStorage.setItem('mop_rewards', JSON.stringify(rewards)); }, [rewards]);
   useEffect(() => { localStorage.setItem('mop_dreams', JSON.stringify(dreams)); }, [dreams]);
   useEffect(() => { localStorage.setItem('mop_health_log', JSON.stringify(healthLog)); }, [healthLog]);
@@ -991,6 +1403,104 @@ export function useAppState() {
       });
       try {
         localStorage.setItem('mop_expenses', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  // Budget Items Actions (INITIAL_BUDGET)
+  const toggleBudgetItemPurchased = useCallback((id: number | string) => {
+    isDirtyRef.current = true;
+    setBudgetItems(prev => {
+      const updated = prev.map(item => {
+        if (item.id === id) {
+          const nextPurchased = !item.purchased;
+          // Si se marca como comprado, registrar también en el historial de gastos
+          if (nextPurchased) {
+            addExpense({
+              description: item.item,
+              amount: item.cost,
+              category: (item.category as any) || 'Pelo',
+              date: getRelativeDateString(0)
+            });
+          }
+          return { ...item, purchased: nextPurchased };
+        }
+        return item;
+      });
+      try {
+        localStorage.setItem('mop_budget_items', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, [addExpense]);
+
+  const addBudgetItem = useCallback((item: Omit<BudgetItem, 'id'>) => {
+    isDirtyRef.current = true;
+    const newItem: BudgetItem = {
+      ...item,
+      id: Date.now()
+    };
+    setBudgetItems(prev => {
+      const updated = [...prev, newItem];
+      try {
+        localStorage.setItem('mop_budget_items', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  // Routine Actions (Rutinas Semanales: Levantarse, Comidas, Pantallas, Escuela)
+  const toggleRoutineCompletion = useCallback((routineId: string, dateStr?: string) => {
+    isDirtyRef.current = true;
+    const date = dateStr || getRelativeDateString(0);
+    const key = `${date}_${routineId}`;
+    setRoutineCompletions(prev => {
+      const nextDone = !prev[key];
+      const next = { ...prev, [key]: nextDone };
+      try {
+        localStorage.setItem('mop_routine_completions', JSON.stringify(next));
+      } catch (e) {}
+      if (nextDone) {
+        setPoints(p => p + 5);
+        setTokens(t => t + 1);
+      }
+      return next;
+    });
+  }, []);
+
+  const addRoutine = useCallback((routineData: Omit<WeeklyRoutineItem, 'id'>) => {
+    isDirtyRef.current = true;
+    const newRoutine: WeeklyRoutineItem = {
+      ...routineData,
+      id: `rout-${Date.now()}`
+    };
+    setRoutines(prev => {
+      const updated = [...prev, newRoutine];
+      try {
+        localStorage.setItem('mop_weekly_routines', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  const updateRoutine = useCallback((id: string, updates: Partial<WeeklyRoutineItem>) => {
+    isDirtyRef.current = true;
+    setRoutines(prev => {
+      const updated = prev.map(r => r.id === id ? { ...r, ...updates } : r);
+      try {
+        localStorage.setItem('mop_weekly_routines', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  const deleteRoutine = useCallback((id: string) => {
+    isDirtyRef.current = true;
+    setRoutines(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      try {
+        localStorage.setItem('mop_weekly_routines', JSON.stringify(updated));
       } catch (e) {}
       return updated;
     });
@@ -1121,14 +1631,19 @@ export function useAppState() {
     }));
   }, []);
 
-  const addAssignment = useCallback((as: Omit<Assignment, 'id' | 'completed'>) => {
+  const addAssignment = useCallback((as: Omit<Assignment, 'id' | 'completed'> & { id?: string; completed?: boolean }) => {
     isDirtyRef.current = true;
+    const uniqueId = as.id || `as-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const newAs: Assignment = {
       ...as,
-      id: 'as-' + Date.now(),
-      completed: false
+      id: uniqueId,
+      completed: as.completed || false
     };
-    setAssignments(prev => [newAs, ...prev]);
+    setAssignments(prev => {
+      // Evitar duplicados por id
+      const filtered = prev.filter(item => item.id !== uniqueId);
+      return [newAs, ...filtered];
+    });
   }, []);
 
   const deleteAssignment = useCallback((id: string) => {
@@ -1249,17 +1764,228 @@ export function useAppState() {
   // Action for User Profile
   const updateUserProfile = useCallback((updates: Partial<typeof userProfile>) => {
     isDirtyRef.current = true;
-    setUserProfile((prev: any) => ({
-      ...prev,
-      ...updates
-    }));
+    setUserProfile((prev: any) => {
+      const updated = {
+        ...prev,
+        ...updates
+      };
+      try {
+        localStorage.setItem('mop_user_profile', JSON.stringify(updated));
+        if (updated.schoolAccessUsername) localStorage.setItem('sa_saved_user', updated.schoolAccessUsername);
+        if (updated.schoolAccessPassword) localStorage.setItem('sa_saved_pass', updated.schoolAccessPassword);
+      } catch (e) {}
+      return updated;
+    });
   }, []);
+
+  const updateSchoolClasses = useCallback((classes: SchoolClass[]) => {
+    isDirtyRef.current = true;
+    setSchoolClasses(classes);
+    try {
+      localStorage.setItem('mop_school_classes', JSON.stringify(classes));
+    } catch (e) {}
+  }, []);
+
+  const updateGradesData = useCallback((data: SchoolGradesData) => {
+    isDirtyRef.current = true;
+    const isMeta = (t: string = '') => {
+      const clean = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      if (!clean) return true;
+      if (clean.includes('espanol')) return false;
+      return clean.includes('codigo') || clean.includes('cedula') || clean.includes('nombre') ||
+             clean.includes('grado') || clean.includes('ano lectivo') || clean.startsWith('ano ') || clean === 'ano' ||
+             clean.includes('seccion') || clean.includes('seleccionar') || clean.includes('boletin') ||
+             clean.includes('estudiante') || clean.includes('materia') || clean.includes('asignatura') ||
+             clean.includes('promedio') || clean.includes('periodo') || clean.includes('condicion');
+    };
+    const cleaned: SchoolGradesData = {
+      ...data,
+      grades: Array.isArray(data?.grades) ? data.grades.filter(g => g && g.subject && !isMeta(g.subject)) : []
+    };
+    setGradesData(cleaned);
+    try {
+      localStorage.setItem('mop_grades', JSON.stringify(cleaned));
+    } catch (e) {}
+  }, []);
+
+  // Filtrado de asignaciones y tareas exclusivamente para la semana en curso (Lunes a Domingo)
+  const currentWeekAssignments = useMemo(() => {
+    return filterTasksByCurrentWeek(assignments);
+  }, [assignments]);
+
+  const currentWeekTasks = useMemo(() => {
+    return tasks.filter(t => !t.dueDate || isDateInCurrentWeek(t.dueDate));
+  }, [tasks]);
+
+  const getWeekAssignments = useCallback((refDate?: Date) => {
+    return filterTasksByCurrentWeek(assignments, refDate);
+  }, [assignments]);
 
   const pastUncompletedCount = activities.filter(act => isEventPassed(act) && !act.completed).length;
 
+  const clearAllUserDataAndLogout = useCallback(async () => {
+    isDirtyRef.current = false;
+    try {
+      await logoutUser();
+    } catch (e) {}
+
+    const keysToRemove = [
+      'mop_user_profile',
+      'mop_tasks',
+      'mop_assignments',
+      'mop_activities',
+      'mop_appointments',
+      'mop_tokens',
+      'mop_points',
+      'mop_expenses',
+      'mop_initial_budget',
+      'mop_calm_journal',
+      'mop_health_log',
+      'mop_rewards',
+      'mop_dreams',
+      'mop_school_classes',
+      'mop_grades',
+      'sa_saved_user',
+      'sa_saved_pass',
+      'sa_remember_creds'
+    ];
+
+    for (const k of keysToRemove) {
+      try {
+        localStorage.removeItem(k);
+      } catch (e) {}
+    }
+
+    setUserProfile({
+      name: '',
+      schoolGrade: '',
+      studentCode: '',
+      schoolGroup: '',
+      schoolAccessUsername: '',
+      schoolAccessPassword: '',
+      activeHealthHabit: '',
+      favoriteVerse: ''
+    });
+    setTasks([]);
+    setAssignments([]);
+    setActivities([]);
+    setTokens(0);
+    setPoints(0);
+    setExpenses([]);
+    setInitialBudgetAmount(0);
+    setCalmJournal([]);
+    setHealthLog({
+      waterGlasses: 0,
+      stretchedFeet: false,
+      supportShoesWorn: false,
+      iceBottleDone: false,
+      notes: ''
+    });
+    setRewards(INITIAL_REWARDS);
+    setDreams([]);
+    setSchoolClasses([]);
+    setGradesData({ grades: [], habits: [], attendance: [], observations: [] });
+    setCurrentUser(null);
+    setSyncStatus('offline');
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      if (currentUser && isDirtyRef.current) {
+        const activeDocRef = doc(db, 'users', currentUser.uid, 'data', activeFirestoreDocId.current);
+        await setDoc(activeDocRef, {
+          userProfile,
+          tasks,
+          activities,
+          appointments: activities,
+          tokens,
+          points,
+          streakDays,
+          expenses,
+          budget: expenses,
+          budgetItems,
+          initialBudgetAmount,
+          challengesByDay,
+          routines,
+          routineCompletions,
+          calmJournal,
+          healthLog,
+          healthAlerts: healthLog,
+          dreams,
+          visionBoard: dreams,
+          rewards,
+          schoolClasses,
+          assignments,
+          gradesData,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
+    } catch (e) {
+      console.warn('Error saving before logout:', e);
+    }
+
+    const keysToRemove = [
+      'mop_user_profile', 'mop_tasks', 'mop_assignments', 'mop_activities',
+      'mop_appointments', 'mop_tokens', 'mop_points', 'mop_streak', 'mop_expenses',
+      'mop_initial_budget', 'mop_budget_items', 'mop_weekly_routines',
+      'mop_routine_completions', 'mop_challenges_day', 'mop_calm_journal',
+      'mop_health_log', 'mop_rewards', 'mop_dreams', 'mop_school_classes',
+      'mop_grades', 'sa_saved_user', 'sa_saved_pass', 'sa_remember_creds'
+    ];
+
+    for (const k of keysToRemove) {
+      try {
+        localStorage.removeItem(k);
+      } catch (e) {}
+    }
+
+    isDirtyRef.current = false;
+
+    setUserProfile({
+      name: '',
+      schoolGrade: '',
+      studentCode: '',
+      schoolGroup: '',
+      schoolAccessUsername: '',
+      schoolAccessPassword: '',
+      activeHealthHabit: '',
+      favoriteVerse: ''
+    });
+    setTasks([]);
+    setAssignments([]);
+    setActivities([]);
+    setTokens(0);
+    setPoints(0);
+    setStreakDays(0);
+    setExpenses([]);
+    setBudgetItems([]);
+    setRoutines([]);
+    setRoutineCompletions({});
+    setInitialBudgetAmount(0);
+    setCalmJournal([]);
+    setHealthLog({
+      waterGlasses: 0,
+      stretchedFeet: false,
+      supportShoesWorn: false,
+      iceBottleDone: false,
+      notes: ''
+    });
+    setRewards([]);
+    setDreams([]);
+    setSchoolClasses([]);
+    setGradesData({ grades: [], habits: [], attendance: [], observations: [] });
+    setCurrentUser(null);
+    setSyncStatus('offline');
+
+    try {
+      await logoutUser();
+    } catch (e) {}
+  }, [currentUser, userProfile, tasks, activities, tokens, points, streakDays, expenses, budgetItems, initialBudgetAmount, challengesByDay, routines, routineCompletions, calmJournal, healthLog, dreams, rewards, schoolClasses, assignments, gradesData]);
+
   return {
     activeTab, setActiveTab,
-    currentUser, syncStatus, loginWithGoogle, logoutUser,
+    currentUser, authLoading, syncStatus, 
+    loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword, logoutUser, handleLogout, clearAllUserDataAndLogout,
     tokens, setTokens,
     points, setPoints,
     challengesByDay, toggleChallengeDay,
@@ -1267,12 +1993,21 @@ export function useAppState() {
     userProfile, setUserProfile, updateUserProfile,
     initialBudgetAmount, setInitialBudgetAmount,
     expenses, addExpense, updateExpense, deleteExpense,
+    budgetItems, setBudgetItems, toggleBudgetItemPurchased, addBudgetItem,
+    routines, setRoutines, routineCompletions, toggleRoutineCompletion, addRoutine, updateRoutine, deleteRoutine,
     calmJournal, addCalmReflection,
     tasks, toggleTask, addTask, deleteTask,
     activities, toggleActivityCompleted, markAllPastActivitiesAsCompleted, addActivity, updateActivity, deleteActivity,
     pastUncompletedCount,
-    schoolClasses,
+    schoolClasses, updateSchoolClasses, setSchoolClasses,
+    gradesData, updateGradesData, setGradesData,
     assignments, toggleAssignment, addAssignment, deleteAssignment,
+    currentWeekAssignments,
+    currentWeekTasks,
+    filterTasksByCurrentWeek,
+    isDateInCurrentWeek,
+    getCurrentWeekRange,
+    getWeekAssignments,
     rewards, claimReward,
     dreams, setDreams, toggleDream, updateDream, addDream, deleteDream,
     healthLog, drinkWater, resetWater, toggleHealthCheck,

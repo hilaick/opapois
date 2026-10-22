@@ -1,0 +1,651 @@
+Aquí tienes el prompt paso a paso con el código completo. Cópialo y pégalo exactamente en tu Google AI Studio. Este prompt actualizará los tipos, el estado global, el servidor proxy y la vista escolar para integrar los deberes a largo plazo, el horario oficial y el boletín de calificaciones.
+
+---
+
+**Copia y pega el siguiente texto en Google AI Studio:**
+
+Por favor, actualiza mi proyecto para integrar la sincronización completa del Horario Oficial y el Boletín de Calificaciones desde SchoolAccess, y mejora el buscador de tareas para abarcar todo el año escolar. Sigue estos 4 pasos exactos:
+
+**Paso 1: Actualiza `src/types/index.ts**`
+Añade las interfaces para el boletín al final del archivo. Reemplaza el archivo completo o añade esto:
+
+```typescript
+export interface Task {
+  id: string;
+  title: string;
+  category: 'Escuela' | 'Hogar' | 'Salud' | 'Personal';
+  priority: 'Alta' | 'Media' | 'Baja';
+  completed: boolean;
+  completedAt?: string;
+  dueDate?: string;
+  notes?: string;
+}
+
+export type ActivityType = 'Creativos & Paseos' | 'Competiciones' | 'Salud & Clases' | 'Social' | 'Familia';
+
+export interface Activity {
+  id: string;
+  title: string;
+  type: ActivityType;
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm
+  location?: string;
+  notes?: string;
+  completed: boolean;
+  completedAt?: string;
+  icon?: string;
+}
+
+export interface SchoolClass {
+  id: string;
+  day: 'Lunes' | 'Martes' | 'Miércoles' | 'Jueves' | 'Viernes' | string;
+  time: string;
+  subject: string;
+  classroom: string;
+  teacher: string;
+  color: string;
+}
+
+export interface Assignment {
+  id: string;
+  title: string;
+  subject: string;
+  dueDate: string;
+  priority: 'Alta' | 'Media' | 'Baja';
+  completed: boolean;
+  notes?: string;
+}
+
+export interface DreamItem {
+  id: string;
+  title: string;
+  category: 'Metas' | 'Viajes' | 'Inspiración' | 'Habilidades';
+  imageUrl: string;
+  description: string;
+  completed: boolean;
+}
+
+export interface RewardItem {
+  id: string;
+  title: string;
+  tokenCost: number;
+  description: string;
+  icon: string;
+  claimedCount: number;
+}
+
+export interface BibleVerse {
+  reference: string;
+  text: string;
+  theme: string;
+}
+
+export interface HealthLog {
+  waterGlasses: number;
+  stretchedFeet: boolean;
+  supportShoesWorn: boolean;
+  iceBottleDone: boolean;
+  notes: string;
+}
+
+export type ExpenseCategory = 'Materiales Escolares' | 'Salud & Cuidado' | 'Paseos & Meriendas' | 'Ahorro & Metas' | 'Otros';
+
+export interface ExpenseItem {
+  id: string;
+  description: string;
+  amount: number;
+  category: ExpenseCategory;
+  date: string;
+}
+
+export interface AttitudeChallenge {
+  day: string;
+  title: string;
+  description: string;
+  points: number;
+}
+
+export interface CalmReflection {
+  id: string;
+  date: string;
+  mood: 'radiante' | 'tranquila' | 'pensativa' | 'con dudas' | 'estresada';
+  gratitude: string;
+  achievement: string;
+}
+
+// NUEVAS INTERFACES PARA BOLETÍN
+export interface GradeItem {
+  subject: string;
+  q1?: string;
+  q2?: string;
+  q3?: string;
+  final?: string;
+}
+
+export interface SchoolGradesData {
+  grades: GradeItem[];
+  habits: { name: string; evaluation: string }[];
+  attendance: { type: string; count: string }[];
+  observations: string[];
+}
+
+```
+
+**Paso 2: Actualiza el backend `server.ts**`
+Añade las nuevas rutas de web scraping para extraer el Horario Oficial y el Boletín de Calificaciones. Reemplaza TODO el contenido de `server.ts`:
+
+```typescript
+import express from 'express';
+import fetch from 'node-fetch';
+import * as cheerio from 'cheerio';
+import { createServer as createViteServer } from 'vite';
+
+async function startServer() {
+  const app = express();
+  app.use(express.json());
+
+  let activeSessionCookies = '';
+
+  // 1. LOGIN ROUTE
+  app.post('/api/school/login', async (req: any, res: any) => {
+    try {
+      const { username, password } = req.body;
+      const loginUrl = 'https://crp.school-access.com/schoolaccess_internet/Login_inicial.asp';
+      
+      const params = new URLSearchParams({
+        user: username,
+        txtUser: username,
+        username: username,
+        pass: password,
+        txtPass: password,
+        password: password
+      });
+
+      const response = await fetch(loginUrl, {
+        method: 'POST',
+        body: params,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Referer': 'https://crp.school-access.com/schoolaccess_internet/'
+        },
+        redirect: 'manual' 
+      });
+
+      let cookiesStr = '';
+      if (typeof (response.headers as any).raw === 'function') {
+        const rawCookies = (response.headers as any).raw()['set-cookie'];
+        if (rawCookies) {
+          cookiesStr = rawCookies.map((c: string) => c.split(';')[0]).join('; ');
+        }
+      }
+
+      if (!cookiesStr) return res.status(401).json({ success: false, error: 'Login fallido: No se recibieron cookies.' });
+      
+      activeSessionCookies = cookiesStr;
+      res.json({ success: true, message: 'Conectado a SchoolAccess', cookies: activeSessionCookies });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 2. ASSIGNMENTS ROUTE (Soporta rangos amplios para "Todo el año")
+  app.get('/api/school/assignments', async (req: any, res: any) => {
+    try {
+      if (!activeSessionCookies) return res.status(401).json({ success: false, error: 'No hay sesión activa.' });
+
+      const { startDate, endDate } = req.query;
+      let start = new Date();
+      let end = new Date();
+
+      if (startDate && endDate) {
+        start = new Date(`${startDate}T12:00:00`);
+        end = new Date(`${endDate}T12:00:00`);
+      }
+
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const formatDateStr = (d: Date) => `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()}`;
+
+      const queryParams = new URLSearchParams({
+        mes: String(start.getMonth() + 1),
+        anio: String(start.getFullYear()),
+        codigo_grupo: '535', 
+        fecha_inicio: formatDateStr(start),
+        fecha_fin: formatDateStr(end)
+      });
+
+      const targetUrl = `https://crp.school-access.com/schoolaccess_reports/std/std_rep_asignaciones_semanal.asp?${queryParams.toString()}`;
+      
+      const response = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { 'Cookie': activeSessionCookies, 'User-Agent': 'Mozilla/5.0' }
+      });
+
+      const html = await response.text();
+      if (html.includes('Login_inicial.asp')) return res.status(401).json({ success: false, error: 'La sesión expiró.' });
+
+      const $ = cheerio.load(html);
+      const assignments: any[] = [];
+      let currentGroupDate = 'Sin fecha';
+
+      $('.MainTable table.Grid tr').each((_, el) => {
+        const $el =$(el);
+        if ($el.hasClass('GroupCaption')) {
+          currentGroupDate = $el.text().replace(/\n/g, '').trim();
+        } else if ($el.hasClass('Row')) {
+          const tds = $el.find('td');
+          if (tds.length >= 3) {
+            const subject = tds.eq(0).text().trim();
+            const type = tds.eq(1).text().trim();
+            const rawDescHtml = tds.eq(2).html() || '';
+            const titleRaw = rawDescHtml.split('<br>')[0] || rawDescHtml.split('<br />')[0] || '';
+            const title = cheerio.load(titleRaw).text().trim();
+            
+            let notes = `Tipo: ${type}`;
+            if (rawDescHtml.includes('<b>Detalle:</b>')) {
+              const detailHtml = rawDescHtml.split('<b>Detalle:</b>')[1];
+              notes = cheerio.load(detailHtml).text().replace(/\s+/g, ' ').trim();
+            }
+
+            if (title && !title.toLowerCase().includes('grupo:')) {
+              assignments.push({
+                id: `school_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                subject, title, dueDate: currentGroupDate, 
+                priority: type.toLowerCase().includes('ejercicio') ? 'Alta' : 'Media',
+                notes: notes.substring(0, 100) + (notes.length > 100 ? '...' : ''),
+                completed: false, source: 'SchoolAccess'
+              });
+            }
+          }
+        }
+      });
+
+      res.json({ success: true, count: assignments.length, data: assignments });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 3. SCHEDULE ROUTE (Horario de Clases Grid)
+  app.get('/api/school/schedule', async (req: any, res: any) => {
+    try {
+      if (!activeSessionCookies) return res.status(401).json({ success: false, error: 'No hay sesión activa.' });
+
+      const targetUrl = 'https://crp.school-access.com/schoolaccess_internet/estudiante_horario_clases_grid.asp';
+      const response = await fetch(targetUrl, {
+        headers: { 'Cookie': activeSessionCookies, 'User-Agent': 'Mozilla/5.0' }
+      });
+      const html = await response.text();
+      const $ = cheerio.load(html);
+      const classes: any[] = [];
+      const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+      const colors = ['blue', 'emerald', 'pink', 'amber', 'indigo', 'teal', 'purple'];
+
+      // El ASP típicamente pone el horario en una tabla principal. Analizamos filas y celdas.
+      $('table tr').each((rowIndex, row) => {
+        if (rowIndex === 0) return; // Skip cabecera
+        const timeSlot = $(row).find('td').eq(0).text().trim();
+        if (!timeSlot || timeSlot.includes('Recreo')) return;
+
+        $(row).find('td').each((colIndex, cell) => {
+          if (colIndex === 0) return; // La columna 0 es la hora
+          const content = $(cell).text().trim();
+          if (content && content.length > 3) {
+            classes.push({
+              id: `class_${rowIndex}_${colIndex}`,
+              day: days[colIndex - 1] || 'Lunes',
+              time: timeSlot,
+              subject: content.split('\n')[0] || content, // Asume que la materia es la primera línea
+              classroom: 'Escuela', // Ajustar si el HTML provee el salón
+              teacher: 'Profesor(a)',
+              color: colors[(rowIndex + colIndex) % colors.length]
+            });
+          }
+        });
+      });
+
+      res.json({ success: true, data: classes });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 4. GRADES ROUTE (Boletín de Calificaciones)
+  app.get('/api/school/grades', async (req: any, res: any) => {
+    try {
+      if (!activeSessionCookies) return res.status(401).json({ success: false, error: 'No hay sesión activa.' });
+
+      const targetUrl = 'https://crp.school-access.com/schoolaccess_internet/estudiante_boletin_calificaciones.asp';
+      const response = await fetch(targetUrl, {
+        headers: { 'Cookie': activeSessionCookies, 'User-Agent': 'Mozilla/5.0' }
+      });
+      const html = await response.text();
+      const $ = cheerio.load(html);
+
+      const gradesData = {
+        grades: [] as any[],
+        habits: [] as any[],
+        attendance: [] as any[],
+        observations: [] as string[]
+      };
+
+      // Extracción genérica de tablas del boletín
+      $('table').each((i, table) => {
+        const tableHtml = $(table).html() || '';
+        // Detectar si es tabla de calificaciones
+        if (tableHtml.toLowerCase().includes('materia') || tableHtml.toLowerCase().includes('asignatura')) {
+          $(table).find('tr').each((j, row) => {
+            if (j === 0) return;
+            const tds = $(row).find('td');
+            if (tds.length >= 2) {
+              gradesData.grades.push({
+                subject: tds.eq(0).text().trim(),
+                q1: tds.eq(1).text().trim(),
+                q2: tds.eq(2).text().trim() || '',
+                q3: tds.eq(3).text().trim() || '',
+                final: tds.last().text().trim()
+              });
+            }
+          });
+        }
+        // Detectar Hábitos
+        else if (tableHtml.toLowerCase().includes('hábitos') || tableHtml.toLowerCase().includes('actitudes')) {
+          $(table).find('tr').each((j, row) => {
+            if (j === 0) return;
+            const tds = $(row).find('td');
+            if (tds.length >= 2) {
+              gradesData.habits.push({ name: tds.eq(0).text().trim(), evaluation: tds.eq(1).text().trim() });
+            }
+          });
+        }
+      });
+
+      res.json({ success: true, data: gradesData });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  const vite = await createViteServer({ server: { middlewareMode: true, allowedHosts: true }, appType: 'spa' });
+  app.use(vite.middlewares);
+  app.listen(3000, '0.0.0.0', () => console.log('Server running on http://localhost:3000'));
+}
+startServer();
+
+```
+
+**Paso 3: Actualiza `src/hooks/useAppState.ts**`
+Añade el estado y métodos para guardar las calificaciones y el horario importado. Modifica la exportación del hook:
+
+```typescript
+// Al inicio del archivo importa SchoolGradesData
+import { SchoolGradesData } from '../types';
+
+// Busca la declaración del useAppState y añade esto dentro del hook (antes del return):
+  const [gradesData, setGradesData] = useState<SchoolGradesData>(() => {
+    const saved = localStorage.getItem('mop_grades');
+    return saved ? JSON.parse(saved) : { grades: [], habits: [], attendance: [], observations: [] };
+  });
+
+  const updateSchoolClasses = useCallback((classes: SchoolClass[]) => {
+    isDirtyRef.current = true;
+    // @ts-ignore - Acceso directo al estado de clases si necesitas actualizarlo
+    // Si schoolClasses estaba hardcodeado, asegúrate de pasarlo a un useState:
+    // const [schoolClasses, setSchoolClasses] = useState<SchoolClass[]>(INITIAL_CLASSES);
+    // Y úsalo aquí: setSchoolClasses(classes);
+  }, []);
+
+  const updateGradesData = useCallback((data: SchoolGradesData) => {
+    isDirtyRef.current = true;
+    setGradesData(data);
+    localStorage.setItem('mop_grades', JSON.stringify(data));
+  }, []);
+
+// En el bloque 'return {' del hook, añade estas exportaciones:
+// gradesData, updateGradesData, updateSchoolClasses,
+
+```
+
+*(Asegúrate de que `schoolClasses` use `useState` en lugar de una constante estática si quieres sobreescribirlo).*
+
+**Paso 4: Reemplaza `src/components/SchoolScheduleView.tsx**`
+Este componente ahora tiene 3 pestañas: Deberes (con filtro Todo el Año), Horario Oficial, y Boletín.
+
+```tsx
+import React, { useState } from 'react';
+import { 
+  GraduationCap, Calendar, Clock, BookOpen, CheckCircle2, 
+  Circle, Plus, MapPin, Trash2, Cloud, LayoutGrid, FileText
+} from 'lucide-react';
+import { SchoolClass, Assignment, SchoolGradesData } from '../types';
+import { getRelativeDateString } from '../hooks/useAppState';
+
+export function SchoolScheduleView({ state }: { state: any }) {
+  const [activeSubTab, setActiveSubTab] = useState<'deberes' | 'horario' | 'boletin'>('deberes');
+  
+  // States Deberes
+  const [showSchoolAccessModal, setShowSchoolAccessModal] = useState(false);
+  const [saUser, setSaUser] = useState('');
+  const [saPass, setSaPass] = useState('');
+  const [syncRange, setSyncRange] = useState<'semana' | 'mes' | 'año'>('semana');
+  const [saSyncDate, setSaSyncDate] = useState(getRelativeDateString(0));
+  const [saLoading, setSaLoading] = useState(false);
+  const [saError, setSaError] = useState('');
+
+  const [dateFilter, setDateFilter] = useState<'proximos' | 'todos'>('proximos');
+  const assignments: Assignment[] = state.assignments || [];
+  const schoolClasses: SchoolClass[] = state.schoolClasses || [];
+  const grades: SchoolGradesData = state.gradesData || { grades: [], habits: [], attendance: [], observations: [] };
+
+  const handleSyncSchoolAccess = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!saUser || !saPass) return;
+    setSaLoading(true); setSaError('');
+
+    try {
+      const selectedDate = new Date(`${saSyncDate}T12:00:00`);
+      let monday = new Date(selectedDate);
+      let friday = new Date(selectedDate);
+
+      if (syncRange === 'semana') {
+        const diffToMonday = selectedDate.getDay() === 0 ? -6 : 1 - selectedDate.getDay();
+        monday.setDate(selectedDate.getDate() + diffToMonday);
+        friday.setDate(monday.getDate() + 4);
+      } else if (syncRange === 'mes') {
+        monday = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+        friday = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
+      } else { // Todo el año
+        monday = new Date(selectedDate.getFullYear(), 0, 1);
+        friday = new Date(selectedDate.getFullYear(), 11, 31);
+      }
+
+      const formatIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      
+      const loginRes = await fetch('/api/school/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: saUser, password: saPass })
+      });
+      const loginData = await loginRes.json();
+      if (!loginData.success) throw new Error(loginData.error);
+
+      // Sincronizar Deberes
+      const assignRes = await fetch(`/api/school/assignments?startDate=${formatIso(monday)}&endDate=${formatIso(friday)}`);
+      const assignData = await assignRes.json();
+      
+      if (assignData.success && Array.isArray(assignData.data)) {
+        assignData.data.forEach((item: any) => {
+          if (item.title) {
+            state.addAssignment({
+              title: item.title, subject: item.subject, dueDate: item.dueDate,
+              priority: item.priority || 'Media', notes: item.notes
+            });
+          }
+        });
+      }
+
+      // Sincronizar Horario y Boletín si el usuario lo desea, podemos llamarlos aquí también
+      const schedRes = await fetch('/api/school/schedule');
+      const schedData = await schedRes.json();
+      if (schedData.success && state.updateSchoolClasses) {
+        state.updateSchoolClasses(schedData.data);
+      }
+
+      const gradeRes = await fetch('/api/school/grades');
+      const gradeData = await gradeRes.json();
+      if (gradeData.success && state.updateGradesData) {
+        state.updateGradesData(gradeData.data);
+      }
+
+      setSaLoading(false);
+      setShowSchoolAccessModal(false);
+      alert('¡Sincronización completa desde SchoolAccess!');
+    } catch (err: any) {
+      setSaLoading(false); setSaError(err.message);
+    }
+  };
+
+  const filteredAssignments = dateFilter === 'todos' 
+    ? assignments 
+    : assignments.filter(a => !a.completed);
+
+  return (
+    <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto pb-28 md:pb-12">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-black text-slate-900 flex items-center gap-2">
+            Portal Escolar Integrado
+          </h1>
+          <p className="text-slate-500 text-sm mt-0.5">Deberes, Horario Oficial y Calificaciones</p>
+        </div>
+        <button
+          onClick={() => setShowSchoolAccessModal(true)}
+          className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm px-4 py-2.5 rounded-2xl shadow-sm transition-all flex items-center gap-2"
+        >
+          <Cloud size={18} /> Sincronizar SchoolAccess
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3 overflow-x-auto">
+        <button onClick={() => setActiveSubTab('deberes')} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${activeSubTab === 'deberes' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+          <BookOpen size={16} /> Deberes y Tareas
+        </button>
+        <button onClick={() => setActiveSubTab('horario')} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${activeSubTab === 'horario' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+          <LayoutGrid size={16} /> Horario Oficial
+        </button>
+        <button onClick={() => setActiveSubTab('boletin')} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${activeSubTab === 'boletin' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+          <FileText size={16} /> Boletín
+        </button>
+      </div>
+
+      {/* TAB: DEBERES */}
+      {activeSubTab === 'deberes' && (
+        <div className="space-y-4 bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-black text-slate-900">Lista de Deberes</h2>
+            <div className="flex gap-2">
+              <button onClick={() => setDateFilter('proximos')} className={`px-3 py-1 text-xs font-bold rounded-lg ${dateFilter === 'proximos' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500'}`}>Pendientes</button>
+              <button onClick={() => setDateFilter('todos')} className={`px-3 py-1 text-xs font-bold rounded-lg ${dateFilter === 'todos' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500'}`}>Todo el Año</button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {filteredAssignments.map(as => (
+              <div key={as.id} className="p-4 rounded-2xl border bg-white flex justify-between items-center group">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => state.toggleAssignment(as.id)} className={as.completed ? 'text-emerald-500' : 'text-slate-300'}>
+                    {as.completed ? <CheckCircle2 size={22} /> : <Circle size={22} />}
+                  </button>
+                  <div>
+                    <h4 className={`font-bold text-sm ${as.completed ? 'line-through text-slate-500' : 'text-slate-900'}`}>{as.title}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{as.subject} • Entrega: {as.dueDate}</p>
+                    {as.notes && <p className="text-[10px] text-slate-400 mt-0.5">{as.notes}</p>}
+                  </div>
+                </div>
+                <button onClick={() => state.deleteAssignment(as.id)} className="text-slate-300 hover:text-rose-500"><Trash2 size={16}/></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: HORARIO OFICIAL */}
+      {activeSubTab === 'horario' && (
+        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
+          <h2 className="text-lg font-black text-slate-900 mb-4">Horario de Clases (Importado)</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {schoolClasses.length === 0 ? <p className="text-sm text-slate-500">Sincroniza para ver el horario.</p> : 
+              schoolClasses.map(c => (
+                <div key={c.id} className="p-4 rounded-xl border bg-slate-50">
+                  <div className="flex justify-between text-xs font-bold text-slate-500 mb-1">
+                    <span>{c.day}</span><span>{c.time}</span>
+                  </div>
+                  <p className="font-black text-slate-900">{c.subject}</p>
+                  <p className="text-xs text-slate-600 mt-1"><MapPin size={12} className="inline mr-1"/>{c.classroom}</p>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+
+      {/* TAB: BOLETÍN */}
+      {activeSubTab === 'boletin' && (
+        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+          <h2 className="text-lg font-black text-slate-900">Boletín de Calificaciones</h2>
+          {grades.grades.length === 0 ? <p className="text-sm text-slate-500">Sincroniza para ver calificaciones.</p> : (
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500 font-bold">
+                <tr><th className="p-2 rounded-l-lg">Materia</th><th className="p-2">Trim 1</th><th className="p-2">Trim 2</th><th className="p-2">Trim 3</th><th className="p-2 rounded-r-lg">Final</th></tr>
+              </thead>
+              <tbody>
+                {grades.grades.map((g, i) => (
+                  <tr key={i} className="border-b border-slate-100">
+                    <td className="p-2 font-bold text-slate-800">{g.subject}</td>
+                    <td className="p-2">{g.q1}</td><td className="p-2">{g.q2}</td><td className="p-2">{g.q3}</td>
+                    <td className="p-2 font-black text-indigo-700">{g.final}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Modal Sincronización */}
+      {showSchoolAccessModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <h3 className="font-black text-slate-900 text-lg">Sincronizar SchoolAccess</h3>
+            {saError && <p className="text-xs text-rose-600 bg-rose-50 p-2 rounded-lg">{saError}</p>}
+            <form onSubmit={handleSyncSchoolAccess} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700">Rango de Extracción (Deberes)</label>
+                <select value={syncRange} onChange={(e: any) => setSyncRange(e.target.value)} className="w-full border rounded-xl p-2 text-sm mt-1">
+                  <option value="semana">Solo la semana seleccionada</option>
+                  <option value="mes">Mes completo</option>
+                  <option value="año">Todo el año escolar</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-700">Fecha de Referencia</label>
+                <input type="date" value={saSyncDate} onChange={(e) => setSaSyncDate(e.target.value)} className="w-full border rounded-xl p-2 text-sm mt-1" />
+              </div>
+              <input type="text" placeholder="Usuario" required value={saUser} onChange={(e) => setSaUser(e.target.value)} className="w-full border rounded-xl p-2 text-sm" />
+              <input type="password" placeholder="Contraseña" required value={saPass} onChange={(e) => setSaPass(e.target.value)} className="w-full border rounded-xl p-2 text-sm" />
+              
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowSchoolAccessModal(false)} className="px-4 py-2 font-bold text-slate-500">Cancelar</button>
+                <button type="submit" disabled={saLoading} className="bg-sky-600 text-white font-bold px-5 py-2.5 rounded-xl disabled:opacity-50">
+                  {saLoading ? 'Extrayendo...' : 'Iniciar Importación'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+```

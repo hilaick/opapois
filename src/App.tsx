@@ -13,10 +13,33 @@ import { CalmCornerView } from './components/CalmCornerView';
 import { WellnessView } from './components/WellnessView';
 import { DreamAndBudgetView } from './components/DreamAndBudgetView';
 import { EditProfileModal } from './components/EditProfileModal';
+import { AuthModal } from './components/AuthModal';
+import { LogoutModal } from './components/LogoutModal';
+import { AuthView } from './components/AuthView';
 
 export default function App() {
   const appState = useAppState();
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+
+  // Pantalla de carga mientras se verifica la sesión en Firebase
+  if (appState.authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-pink-50/70 via-slate-50 to-indigo-50/40 flex flex-col items-center justify-center p-4">
+        <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-pink-500 via-rose-500 to-indigo-500 text-white flex items-center justify-center shadow-xl shadow-pink-200/60 animate-pulse mb-4">
+          <Sparkles size={32} />
+        </div>
+        <h2 className="text-xl font-black text-slate-900 tracking-tight">Mi Organizador Personal</h2>
+        <p className="text-xs text-slate-500 mt-1 font-semibold">Conectando con tu espacio en la nube...</p>
+      </div>
+    );
+  }
+
+  // Si no hay sesión iniciada, mostrar directamente la pantalla de inicio de sesión protegida
+  if (!appState.currentUser) {
+    return <AuthView state={appState} />;
+  }
 
   const navItems = [
     { id: 'hoy', icon: Home, label: 'Hoy', badge: null },
@@ -154,19 +177,19 @@ export default function App() {
                 </p>
               </div>
               <button
-                onClick={appState.logoutUser}
-                className="text-slate-400 hover:text-rose-600 p-1"
-                title="Cerrar sesión"
+                onClick={() => setIsLogoutModalOpen(true)}
+                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition"
+                title="Cerrar sesión y gestionar datos"
               >
-                <LogOut size={13} />
+                <LogOut size={14} />
               </button>
             </div>
           ) : (
             <button
-              onClick={appState.loginWithGoogle}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1.5"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs"
             >
-              <LogIn size={13} /> Iniciar Sesión con Google
+              <LogIn size={13} /> Iniciar Sesión / Registrarse
             </button>
           )}
 
@@ -218,7 +241,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => appState.setActiveTab('espacio')}
               className="bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl text-xs font-black text-amber-800 flex items-center gap-1"
@@ -233,6 +256,25 @@ export default function App() {
               <Star size={12} className="text-amber-500 fill-amber-500" />
               {appState.points}
             </button>
+            {appState.currentUser ? (
+              <button
+                type="button"
+                onClick={() => setIsLogoutModalOpen(true)}
+                className="p-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 transition"
+                title="Cerrar sesión"
+              >
+                <LogOut size={14} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="p-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition"
+                title="Iniciar Sesión / Registrarse"
+              >
+                <LogIn size={14} />
+              </button>
+            )}
           </div>
         </header>
 
@@ -241,7 +283,9 @@ export default function App() {
           {appState.activeTab === 'hoy' && (
             <TodayDashboard 
               state={appState} 
-              onEditProfile={() => setIsProfileModalOpen(true)} 
+              onEditProfile={() => setIsProfileModalOpen(true)}
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
+              onOpenLogoutModal={() => setIsLogoutModalOpen(true)}
             />
           )}
           {appState.activeTab === 'calendario' && <CalendarView state={appState} />}
@@ -289,6 +333,21 @@ export default function App() {
         userProfile={appState.userProfile}
         onSave={appState.updateUserProfile}
         currentUser={appState.currentUser}
+      />
+
+      {/* Modal de Autenticación (Email / Password / Google / Registro / Limpiar datos) */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        state={appState}
+      />
+
+      {/* Modal de Cierre de Sesión (Borrar datos locales o mantenerlos) */}
+      <LogoutModal
+        isOpen={isLogoutModalOpen}
+        onClose={() => setIsLogoutModalOpen(false)}
+        state={appState}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
     </div>

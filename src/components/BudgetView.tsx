@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
   DollarSign, TrendingDown, Wallet, Plus, Trash2, 
-  PieChart, Tag, Calendar, Edit2, Check, ArrowUpRight
+  PieChart, Tag, Calendar, Edit2, Check, ArrowUpRight, Sparkles
 } from 'lucide-react';
 import { ExpenseItem, ExpenseCategory } from '../types';
 import { getRelativeDateString } from '../hooks/useAppState';
@@ -38,6 +38,8 @@ export function BudgetView({ state }: { state: any }) {
   // Category breakdown
   const categoryTotals = useMemo(() => {
     const cats: Record<ExpenseCategory, number> = {
+      'Pelo': 0,
+      'Aseo Personal': 0,
       'Materiales Escolares': 0,
       'Salud & Cuidado': 0,
       'Paseos & Meriendas': 0,
@@ -119,6 +121,8 @@ export function BudgetView({ state }: { state: any }) {
 
   const getCategoryColor = (cat: ExpenseCategory) => {
     switch (cat) {
+      case 'Pelo': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'Aseo Personal': return 'bg-pink-100 text-pink-800 border-pink-200';
       case 'Materiales Escolares': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'Salud & Cuidado': return 'bg-teal-100 text-teal-800 border-teal-200';
       case 'Paseos & Meriendas': return 'bg-amber-100 text-amber-800 border-amber-200';
@@ -254,6 +258,69 @@ export function BudgetView({ state }: { state: any }) {
         </div>
       </div>
 
+      {/* Plan de Compras Recurrentes y Cuidado Personal (Pelo & Aseo) */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+              <Sparkles size={18} className="text-purple-600" /> Plan de Compras de Cuidado Personal & Pelo
+            </h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              Productos esenciales de cuidado capilar (Yellow / Norex) y aseo personal con sus costos y periodicidad
+            </p>
+          </div>
+          <span className="text-[11px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-3 py-1 rounded-full self-start sm:self-auto">
+            7 Productos Clave
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {(state?.budgetItems || []).map((b: any) => {
+            const isPurchased = Boolean(b.purchased);
+            return (
+              <div 
+                key={`budget-item-${b.id}`} 
+                className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                  isPurchased ? 'bg-emerald-50/40 border-emerald-200' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                      b.category === 'Pelo' ? 'bg-purple-100 text-purple-800' : 'bg-pink-100 text-pink-800'
+                    }`}>
+                      {b.category}
+                    </span>
+                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                      <Calendar size={11} className="text-slate-400" /> {b.date}
+                    </span>
+                  </div>
+                  <h4 className="font-extrabold text-sm text-slate-900">{b.item}</h4>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-200/60">
+                  <span className="text-base font-black text-slate-900">${Number(b.cost).toFixed(2)}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => state.toggleBudgetItemPurchased && state.toggleBudgetItemPurchased(b.id)}
+                      className={`text-xs font-bold px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ${
+                        isPurchased 
+                          ? 'bg-emerald-600 text-white shadow-xs' 
+                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {isPurchased ? <Check size={14} /> : null}
+                      <span>{isPurchased ? 'Comprado' : 'Marcar Comprado'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Filtros y Lista de Gastos */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -262,7 +329,7 @@ export function BudgetView({ state }: { state: any }) {
           </h3>
 
           <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-bold">
-            {['Todas', 'Materiales Escolares', 'Salud & Cuidado', 'Paseos & Meriendas', 'Ahorro & Metas'].map(cat => (
+            {['Todas', 'Pelo', 'Aseo Personal', 'Materiales Escolares', 'Salud & Cuidado', 'Paseos & Meriendas', 'Ahorro & Metas'].map(cat => (
               <button
                 key={cat}
                 onClick={() => setCategoryFilter(cat)}
@@ -388,6 +455,8 @@ export function BudgetView({ state }: { state: any }) {
                   onChange={(e) => setEditCategory(e.target.value as any)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700"
                 >
+                  <option value="Pelo">Pelo (Shampoo, Acondicionador, Tratamiento...)</option>
+                  <option value="Aseo Personal">Aseo Personal (Scrub, Crema, Splash...)</option>
                   <option value="Materiales Escolares">Materiales Escolares</option>
                   <option value="Salud & Cuidado">Salud & Cuidado</option>
                   <option value="Paseos & Meriendas">Paseos & Meriendas</option>
@@ -475,6 +544,8 @@ export function BudgetView({ state }: { state: any }) {
                   onChange={(e) => setExpCategory(e.target.value as any)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700"
                 >
+                  <option value="Pelo">Pelo (Shampoo, Acondicionador, Tratamiento...)</option>
+                  <option value="Aseo Personal">Aseo Personal (Scrub, Crema, Splash...)</option>
                   <option value="Materiales Escolares">Materiales Escolares</option>
                   <option value="Salud & Cuidado">Salud & Cuidado</option>
                   <option value="Paseos & Meriendas">Paseos & Meriendas</option>

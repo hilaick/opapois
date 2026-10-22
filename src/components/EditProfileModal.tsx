@@ -9,6 +9,8 @@ interface EditProfileModalProps {
     schoolGrade: string;
     studentCode?: string;
     schoolGroup?: string;
+    schoolAccessUsername?: string;
+    schoolAccessPassword?: string;
     activeHealthHabit: string;
     favoriteVerse: string;
   };
@@ -17,6 +19,8 @@ interface EditProfileModalProps {
     schoolGrade: string;
     studentCode?: string;
     schoolGroup?: string;
+    schoolAccessUsername?: string;
+    schoolAccessPassword?: string;
     activeHealthHabit: string;
     favoriteVerse: string;
   }) => void;
@@ -30,10 +34,12 @@ export function EditProfileModal({
   onSave,
   currentUser
 }: EditProfileModalProps) {
-  const [name, setName] = useState(userProfile.name || 'Helen');
-  const [schoolGrade, setSchoolGrade] = useState(userProfile.schoolGrade || '2do de Secundaria');
-  const [studentCode, setStudentCode] = useState(userProfile.studentCode || '2024-535');
+  const [name, setName] = useState(userProfile.name || 'Helen Nicole');
+  const [schoolGrade, setSchoolGrade] = useState(userProfile.schoolGrade || '5º - Primaria A');
+  const [studentCode, setStudentCode] = useState(userProfile.studentCode || '1660');
   const [schoolGroup, setSchoolGroup] = useState(userProfile.schoolGroup || '535');
+  const [saUser, setSaUser] = useState(userProfile.schoolAccessUsername || userProfile.studentCode || '1660');
+  const [saPass, setSaPass] = useState(userProfile.schoolAccessPassword || '');
   const [activeHealthHabit, setActiveHealthHabit] = useState(
     userProfile.activeHealthHabit || 'Calzado ergonómico con soporte de arco (Evitar chanclas planas/Crocs)'
   );
@@ -52,9 +58,15 @@ export function EditProfileModal({
       schoolGrade: schoolGrade.trim(),
       studentCode: studentCode.trim(),
       schoolGroup: schoolGroup.trim(),
+      schoolAccessUsername: saUser.trim(),
+      schoolAccessPassword: saPass.trim(),
       activeHealthHabit: activeHealthHabit.trim(),
       favoriteVerse: favoriteVerse.trim()
     });
+    // Guardar también en localStorage para persistencia inmediata en el navegador
+    if (saUser.trim()) localStorage.setItem('sa_saved_user', saUser.trim());
+    if (saPass.trim()) localStorage.setItem('sa_saved_pass', saPass.trim());
+    localStorage.setItem('sa_remember_creds', 'true');
     onClose();
   };
 
@@ -123,31 +135,71 @@ export function EditProfileModal({
             />
           </div>
 
-          {/* Datos SchoolAccess: Código Estudiante y Grupo */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-sky-50/70 border border-sky-100 rounded-2xl">
-            <div>
-              <label className="text-xs font-bold text-sky-900 block mb-1">
-                Código Estudiante (SchoolAccess)
-              </label>
-              <input
-                type="text"
-                value={studentCode}
-                onChange={(e) => setStudentCode(e.target.value)}
-                placeholder="Ej. 2024-535"
-                className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
-              />
+          {/* Datos SchoolAccess: Credenciales, Código Estudiante y Grupo */}
+          <div className="space-y-3 p-3.5 bg-sky-50/70 border border-sky-100 rounded-2xl">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                <GraduationCap size={15} className="text-sky-600" />
+                Credenciales SchoolAccess (Portal Escolar)
+              </span>
+              <span className="text-[10px] text-sky-700 bg-sky-100/80 px-2 py-0.5 rounded-full font-bold">
+                Auto-sincronización
+              </span>
             </div>
-            <div>
-              <label className="text-xs font-bold text-sky-900 block mb-1">
-                Grupo / Sección (SchoolAccess)
-              </label>
-              <input
-                type="text"
-                value={schoolGroup}
-                onChange={(e) => setSchoolGroup(e.target.value)}
-                placeholder="Ej. 535"
-                className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
-              />
+            <p className="text-[11px] text-sky-800 leading-tight">
+              Guarda tus datos aquí para que el portal escolar se sincronice automáticamente sin volver a pedirlos.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-sky-900 block mb-1">
+                  Usuario / Matrícula
+                </label>
+                <input
+                  type="text"
+                  value={saUser}
+                  onChange={(e) => setSaUser(e.target.value)}
+                  placeholder="Ej. 1660"
+                  className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-sky-900 block mb-1">
+                  Contraseña SchoolAccess
+                </label>
+                <input
+                  type="password"
+                  value={saPass}
+                  onChange={(e) => setSaPass(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="text-[11px] font-bold text-sky-900 block mb-1">
+                  Código de Estudiante
+                </label>
+                <input
+                  type="text"
+                  value={studentCode}
+                  onChange={(e) => setStudentCode(e.target.value)}
+                  placeholder="Ej. 1660"
+                  className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-sky-900 block mb-1">
+                  Grupo / Grado (SchoolAccess)
+                </label>
+                <input
+                  type="text"
+                  value={schoolGroup}
+                  onChange={(e) => setSchoolGroup(e.target.value)}
+                  placeholder="Ej. 535"
+                  className="w-full text-xs font-semibold bg-white border border-sky-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
             </div>
           </div>
 

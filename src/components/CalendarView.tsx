@@ -2,12 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { 
   ChevronLeft, ChevronRight, Calendar as CalendarIcon, 
   Clock, CheckCircle2, Circle, Plus, MapPin, 
-  GraduationCap, AlertTriangle, Sparkles, Check
+  GraduationCap, AlertTriangle, Sparkles, Check,
+  Sun, Utensils, Smartphone, Moon, BookOpen, Trash2, Edit3, X, ShieldCheck, Heart
 } from 'lucide-react';
-import { Activity, Assignment, SchoolClass } from '../types';
+import { Activity, Assignment, SchoolClass, WeeklyRoutineItem } from '../types';
 import { isEventPassed, getRelativeDateString, normalizeDate, isMatchingDate } from '../hooks/useAppState';
 
 export function CalendarView({ state }: { state: any }) {
+  const [viewMode, setViewMode] = useState<'calendar' | 'routines'>('calendar');
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDateStr, setSelectedDateStr] = useState(() => getRelativeDateString(0));
   const [showAddModal, setShowAddModal] = useState(false);
@@ -18,6 +20,18 @@ export function CalendarView({ state }: { state: any }) {
   const [newTime, setNewTime] = useState('16:00');
   const [newLocation, setNewLocation] = useState('');
   const [newCompleted, setNewCompleted] = useState(false);
+
+  // Weekly Routines state & filters
+  const [routineDayFilter, setRoutineDayFilter] = useState<string>('Todos');
+  const [routineCategoryFilter, setRoutineCategoryFilter] = useState<string>('todas');
+  const [showAddRoutineModal, setShowAddRoutineModal] = useState(false);
+
+  // Form for new custom routine
+  const [newRoutTitle, setNewRoutTitle] = useState('');
+  const [newRoutTime, setNewRoutTime] = useState('14:45 - 15:30');
+  const [newRoutCat, setNewRoutCat] = useState<'levantarse' | 'colegio' | 'comida' | 'pantalla' | 'estudio' | 'salud' | 'dormir'>('comida');
+  const [newRoutDesc, setNewRoutDesc] = useState('');
+  const [newRoutDays, setNewRoutDays] = useState<string[]>(['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -257,9 +271,9 @@ export function CalendarView({ state }: { state: any }) {
                     })}
 
                     {/* Badges de Deberes */}
-                    {dayAssignments.slice(0, 1).map((as) => (
+                    {dayAssignments.slice(0, 1).map((as, idx) => (
                       <div
-                        key={as.id}
+                        key={`cal-badge-${as.id || 'as'}-${idx}`}
                         className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg truncate ${
                           as.completed
                             ? 'bg-emerald-50 text-emerald-700 line-through'
@@ -387,9 +401,9 @@ export function CalendarView({ state }: { state: any }) {
                 <h4 className="text-xs font-black uppercase text-indigo-500 tracking-wide">
                   Deberes por entregar ({selectedAssignments.length})
                 </h4>
-                {selectedAssignments.map((as) => (
+                {selectedAssignments.map((as, idx) => (
                   <div
-                    key={as.id}
+                    key={`cal-as-list-${as.id || 'as'}-${idx}`}
                     className="p-3 rounded-2xl bg-indigo-50/40 border border-indigo-100 flex items-center justify-between"
                   >
                     <div>

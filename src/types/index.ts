@@ -78,7 +78,7 @@ export interface HealthLog {
 }
 
 // Presupuesto y Gastos detallados
-export type ExpenseCategory = 'Materiales Escolares' | 'Salud & Cuidado' | 'Paseos & Meriendas' | 'Ahorro & Metas' | 'Otros';
+export type ExpenseCategory = 'Pelo' | 'Aseo Personal' | 'Materiales Escolares' | 'Salud & Cuidado' | 'Paseos & Meriendas' | 'Ahorro & Metas' | 'Otros';
 
 export interface ExpenseItem {
   id: string;
@@ -86,6 +86,26 @@ export interface ExpenseItem {
   amount: number;
   category: ExpenseCategory;
   date: string;
+}
+
+export interface BudgetItem {
+  id: number | string;
+  category: string;
+  item: string;
+  cost: number;
+  date: string;
+  purchased: boolean;
+}
+
+export interface WeeklyRoutineItem {
+  id: string;
+  time: string;
+  title: string;
+  category: 'levantarse' | 'colegio' | 'comida' | 'pantalla' | 'estudio' | 'salud' | 'dormir';
+  days: ('Lunes' | 'Martes' | 'Miércoles' | 'Jueves' | 'Viernes' | 'Sábado' | 'Domingo')[];
+  description: string;
+  icon?: string;
+  completedDays?: Record<string, boolean>;
 }
 
 // Desafío de Actitud Diaria (Puntos)
@@ -110,6 +130,8 @@ export interface UserProfile {
   schoolGrade: string;
   studentCode?: string;
   schoolGroup?: string;
+  schoolAccessUsername?: string;
+  schoolAccessPassword?: string;
   activeHealthHabit: string;
   favoriteVerse: string;
 }
@@ -121,14 +143,23 @@ export interface ReportCardGrade {
   period3?: number | string;
   period4?: number | string;
   finalAverage?: number | string;
+  q1?: string;
+  q2?: string;
+  q3?: string;
+  final?: string;
   status?: string;
   teacher?: string;
 }
 
 export interface HabitEvaluation {
   habit: string;
-  evaluation: string;
+  name?: string;
+  evaluation?: string;
   category?: string;
+  p1?: string;
+  p2?: string;
+  p3?: string;
+  p4?: string;
 }
 
 export interface AttendanceRecord {
@@ -146,11 +177,20 @@ export interface TeacherObservation {
   comment: string;
 }
 
+export interface StudentProfileData {
+  name?: string;
+  studentCode?: string;
+  cedula?: string;
+  schoolGrade?: string;
+  academicYear?: string;
+}
+
 export interface SchoolReportCard {
   studentName?: string;
   studentCode?: string;
   groupName?: string;
   academicYear?: string;
+  studentProfile?: StudentProfileData;
   grades: ReportCardGrade[];
   habits: HabitEvaluation[];
   attendance: AttendanceRecord;
@@ -164,4 +204,28 @@ export interface SchoolScheduleSlot {
   wednesday?: { subject: string; teacher?: string; room?: string };
   thursday?: { subject: string; teacher?: string; room?: string };
   friday?: { subject: string; teacher?: string; room?: string };
+}
+
+// NUEVAS INTERFACES PARA BOLETÍN
+export interface GradeItem {
+  subject: string;
+  q1?: string;
+  q2?: string;
+  q3?: string;
+  period1?: string;
+  period2?: string;
+  period3?: string;
+  period4?: string;
+  final?: string;
+  finalAverage?: string;
+  status?: string;
+  teacher?: string;
+}
+
+export interface SchoolGradesData {
+  studentProfile?: StudentProfileData;
+  grades: GradeItem[];
+  habits: { name?: string; habit?: string; evaluation?: string; p1?: string; p2?: string; p3?: string; p4?: string; category?: string }[];
+  attendance: { type: string; count: string }[];
+  observations: (string | TeacherObservation)[];
 }
